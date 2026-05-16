@@ -202,6 +202,14 @@ function blankState() {
     govIdOffered: false,
     passportOffered: false,
     driverLicenseOffered: false,
+    // School / university
+    schoolName: null,          // generated when entering elementary/middle/high
+    collegeName: null,         // generated on college enrollment
+    collegeMajor: null,        // chosen from dropdown
+    studentLoan: null,         // { balance, monthlyPayment, originalAmount } or null
+    // Referrals — names of people who have offered to vouch for you. Each
+    // entry: { from: "Mrs. Garcia", kind: "teacher" | "professor" | "mentor" | "boss", used: false }
+    referrals: [],
   };
 }
 
@@ -464,6 +472,56 @@ function triggerMomHouseEvent() {
       },
     ]
   );
+}
+
+/* ============ SCHOOL NAMES ============
+ * Generates plausible school names by combining last names + thematic suffixes.
+ * Cached on State so the same school keeps its name across age dialogs.
+ */
+function generateSchoolName(level) {
+  const lastName = pick(GAME.constants.lastNames);
+  const presidents = ["Lincoln", "Washington", "Jefferson", "Roosevelt", "Kennedy", "Adams", "Wilson", "Madison", "Monroe", "Jackson"];
+  const nature   = ["Oakwood", "Pinewood", "Maple", "Riverside", "Hillcrest", "Lakeside", "Westfield", "Eastside", "Brookfield", "Fairview"];
+  const directional = ["North", "South", "East", "West", "Central"];
+
+  const elementaryFormats = [
+    () => `${pick(presidents)} Elementary School`,
+    () => `${pick(nature)} Elementary School`,
+    () => `${lastName} Elementary`,
+    () => `${pick(directional)} ${pick(nature)} Elementary School`,
+  ];
+  const middleFormats = [
+    () => `${pick(presidents)} Middle School`,
+    () => `${pick(nature)} Middle School`,
+    () => `${lastName} Middle School`,
+    () => `${pick(directional)} ${pick(presidents)} Middle School`,
+  ];
+  const highFormats = [
+    () => `${pick(presidents)} High School`,
+    () => `${pick(nature)} High School`,
+    () => `${lastName} Memorial High School`,
+    () => `${pick(directional)} ${pick(nature)} High School`,
+    () => `${pick(presidents)} Preparatory Academy`,
+  ];
+
+  const formats = level === "elementary" ? elementaryFormats
+                : level === "middle"     ? middleFormats
+                : highFormats;
+  return pick(formats)();
+}
+
+function generateCollegeName() {
+  const lastName = pick(GAME.constants.lastNames);
+  const cities = ["Boston", "Chicago", "Austin", "Seattle", "Portland", "Denver", "Atlanta", "Phoenix", "Madison", "Berkeley"];
+  const formats = [
+    () => `${pick(cities)} University`,
+    () => `${lastName} University`,
+    () => `${pick(cities)} State College`,
+    () => `University of ${pick(cities)}`,
+    () => `${lastName} College`,
+    () => `${pick(cities)} Tech`,
+  ];
+  return pick(formats)();
 }
 
 /* ============ AUTOSAVE ============ */
@@ -864,6 +922,12 @@ function showAftermath(title, text, opts) {
     requestAnimationFrame(() => { block.querySelector(".enjoyment-fill").style.width = v + "%"; });
   }
 
+  // Custom hint text — defaults to the global hint, can be overridden per-call.
+  if (opts.hint) {
+    DLG.hint.textContent = opts.hint;
+  } else {
+    DLG.hint.textContent = "Tap anywhere to continue";
+  }
   DLG.hint.style.display = "block";
   DLG.overlay.classList.add("show", "aftermath");
   if (window.lucide) lucide.createIcons();
@@ -1981,11 +2045,103 @@ function arson() {
 function enrollCollege() {
   if (State.education.includes("College") || State.inCollege) { showAftermath("Already Enrolled", "I'm already on a college track."); return; }
   if (State.stats.smarts < 50) { showAftermath("Rejected", "My grades weren't strong enough. I didn't get in."); return; }
-  if (!spend(20000)) { showAftermath("Can't Afford", "College tuition is no joke. I couldn't swing it."); return; }
-  State.inCollege = true;
-  State.collegeYear = 1;
-  logEvent("I enrolled in college.", "good");
-  showAftermath("College Bound", "I enrolled in college. Four long years ahead.");
+
+  // Custom dialog: major dropdown + funding dropdown (cash vs student loan)
+  DLG.header.textContent = "Choose Your Path";
+  DLG.body.innerHTML = "";
+  DLG.hint.style.display = "none";
+
+  const q = document.createElement("div");
+  q.className = "narration";
+  q.textContent = "I'm enrolled. Time to pick what I'll study and how I'll pay for it.";
+  DLG.body.appendChild(q);
+
+  // Major
+  const majors = [
+    "Computer Science", "Business", "Psychology", "Engineering",
+    "English Literature", "Biology", "Art History", "Mathematics",
+    "Political Science", "Philosophy"
+  ];
+  const majorWrap = document.createElement("div");
+  majorWrap.className = "dlg-dropdown-row";
+  majorWrap.innerHTML = `<div class="dlg-dropdown-label">Major</div>`;
+  const majorSel = document.createElement("select");
+  majorSel.className = "dlg-dropdown";
+  for (const m of majors) {
+    const opt = document.createElement("option");
+    opt.value = m; opt.textContent = m;
+    majorSel.appendChild(opt);
+  }
+  majorWrap.appendChild(majorSel);
+  DLG.body.appendChild(majorWrap);
+
+  // Funding
+  const tuition = 20000;
+  const loanAmount = 60000;
+  const fundingWrap = document.createElement("div");
+  fundingWrap.className = "dlg-dropdown-row";
+  fundingWrap.innerHTML = `<div class="dlg-dropdown-label">Funding</div>`;
+  const fundSel = document.createElement("select");
+  fundSel.className = "dlg-dropdown";
+  const optCash = document.createElement("option");
+  optCash.value = "cash"; optCash.textContent = `Pay tuition (${money(tuition)} upfront)`;
+  const optLoan = document.createElement("option");
+  optLoan.value = "loan"; optLoan.textContent = `Take a student loan (${money(loanAmount)} at graduation)`;
+  fundSel.appendChild(optCash);
+  fundSel.appendChild(optLoan);
+  fundingWrap.appendChild(fundSel);
+  DLG.body.appendChild(fundingWrap);
+
+  // Submit
+  const submit = document.createElement("button");
+  submit.className = "dlg-btn";
+  submit.style.background = "#2e9b3a";
+  submit.style.color = "#fff";
+  submit.textContent = "Enroll";
+  submit.onclick = () => {
+    const major = majorSel.value;
+    const funding = fundSel.value;
+
+    if (funding === "cash") {
+      if (!debit(tuition)) {
+        // Not enough cash on hand — offer the loan as a fallback instead of bouncing them
+        showAftermath(
+          "Tuition Too Steep",
+          `Tuition is ${money(tuition)} upfront and I can't cover it. The loan option is still available.`
+        );
+        return;
+      }
+    } else {
+      // Student loan — debt is held until graduation, then turns into yearly payments
+      State.studentLoan = {
+        balance: loanAmount,
+        originalAmount: loanAmount,
+        monthlyPayment: 500, // about $6,000/yr after graduation
+        active: false,        // becomes true on graduation
+      };
+      if (!State.memory) State.memory = {};
+      State.memory.took_student_loan = true;
+    }
+
+    State.inCollege = true;
+    State.collegeYear = 1;
+    State.collegeMajor = major;
+    State.collegeName = generateCollegeName();
+    closeDialog();
+
+    logEvent(`I enrolled at ${State.collegeName}, majoring in ${major}${funding === "loan" ? " on a student loan" : ""}.`, "good");
+    showAftermath(
+      `Welcome to ${State.collegeName}`,
+      `A four-year university.\n\nI'm officially a ${major} major. ${
+        funding === "loan"
+          ? `I'll have ${money(loanAmount)} in student debt when I graduate, but I get to focus on classes instead of bills.`
+          : `I paid the year's tuition upfront and walked into the welcome week broke but unburdened.`
+      }`,
+      { hint: "OK" }
+    );
+  };
+  DLG.body.appendChild(submit);
+  DLG.overlay.classList.add("show");
 }
 
 function enrollGradSchool() {
@@ -3023,14 +3179,56 @@ function advanceYear() {
     return;
   }
 
-  // Schooling
-  if (State.age === 5) { State.inSchool = true; logEvent("I started elementary school.", "good"); }
-  if (State.age === 12 && State.inSchool) { logEvent("I moved up to middle school."); }
-  if (State.age === 14 && State.inSchool) { logEvent("I started high school."); }
+  // Schooling — with proper dialogs and a generated school name for flavor.
+  // The first school dialog establishes the school, later ones reference it.
+  if (State.age === 5) {
+    State.inSchool = true;
+    State.schoolName = generateSchoolName("elementary");
+    logEvent(`I started ${State.schoolName} for kindergarten.`, "good");
+    showAftermath(
+      "First Day of School",
+      `${State.schoolName}\n\nA public elementary school in my neighborhood. Mom walked me to the door and I tried not to cry when she left.`,
+      { hint: "OK" }
+    );
+  }
+  if (State.age === 12 && State.inSchool) {
+    State.schoolName = generateSchoolName("middle");
+    logEvent(`I moved up to ${State.schoolName}.`);
+    showAftermath(
+      "Starting Middle School",
+      `${State.schoolName}\n\nA public middle school. New building, new lockers, new social ladder. I'm starting over.`,
+      { hint: "OK" }
+    );
+  }
+  if (State.age === 14 && State.inSchool) {
+    State.schoolName = generateSchoolName("high");
+    logEvent(`I started ${State.schoolName}.`);
+    showAftermath(
+      "Starting High School",
+      `${State.schoolName}\n\nA public high school. Three thousand kids, four years to figure myself out.`,
+      { hint: "OK" }
+    );
+  }
   if (State.age === 18 && State.inSchool) {
     State.inSchool = false;
-    if (State.stats.smarts >= 35) { State.education = "High school graduate"; logEvent("I graduated high school.", "good"); }
-    else { State.education = "High school dropout"; logEvent("I dropped out of high school.", "bad"); }
+    const schoolDisplay = State.schoolName || "high school";
+    if (State.stats.smarts >= 35) {
+      State.education = "High school graduate";
+      logEvent(`I graduated from ${schoolDisplay}.`, "good");
+      showAftermath(
+        `Graduated from ${schoolDisplay}`,
+        `Diploma in hand. Four years of late assignments, awkward dances, and tiny triumphs behind me. The cap toss was glorious.`,
+        { hint: "OK" }
+      );
+    } else {
+      State.education = "High school dropout";
+      logEvent(`I dropped out of ${schoolDisplay}.`, "bad");
+      showAftermath(
+        `Left ${schoolDisplay}`,
+        `I couldn't make the grades stick. I left without a diploma and tried not to think about it too hard.`,
+        { hint: "OK" }
+      );
+    }
   }
   // Hard cut-off: no one stays in K-12 past 20.
   if (State.age >= 20 && State.inSchool) {
@@ -3043,7 +3241,12 @@ function advanceYear() {
     if (State.collegeYear > 4) {
       State.inCollege = false;
       State.education = "College graduate";
-      logEvent("I graduated college.", "good");
+      logEvent(`I graduated from ${State.collegeName || "college"} with a degree in ${State.collegeMajor || "my field"}.`, "good");
+      // Student loan kicks in once they're out of school
+      if (State.studentLoan && !State.studentLoan.active) {
+        State.studentLoan.active = true;
+        logEvent(`My student loan payments begin. I owe ${money(State.studentLoan.balance)}.`, "bad");
+      }
     }
   }
   if (State.inGradSchool) {
@@ -3065,6 +3268,26 @@ function advanceYear() {
 
   // Housing: rent, eviction, age-20 mom-house event, recovery from homeless
   processHousing();
+
+  // Student loan: yearly payment once active
+  if (State.studentLoan && State.studentLoan.active && State.studentLoan.balance > 0) {
+    const yearly = (State.studentLoan.monthlyPayment || 500) * 12;
+    const due = Math.min(yearly, State.studentLoan.balance);
+    if (debit(due)) {
+      State.studentLoan.balance -= due;
+      if (State.studentLoan.balance <= 0) {
+        State.studentLoan.balance = 0;
+        State.studentLoan.active = false;
+        logEvent("I made my final student loan payment. Debt-free.", "good");
+        State.stats.mood = clamp(State.stats.mood + 12);
+      }
+    } else {
+      // Missed payment — debt grows with penalty interest
+      State.studentLoan.balance = Math.round(State.studentLoan.balance * 1.08);
+      State.stats.mood = clamp(State.stats.mood - 4);
+      logEvent("I missed a student loan payment. Penalty interest piled on.", "bad");
+    }
+  }
 
   // Partner drift
   if (State.partner) {
@@ -3495,11 +3718,18 @@ function viewSchool() {
 
     const head = document.createElement("div");
     head.className = "form-section";
+    const refCount = (State.referrals || []).filter(r => !r.used).length;
+    const loanInfo = State.studentLoan
+      ? `<div class="info-row"><div>Student Loan</div><div class="v">${money(State.studentLoan.balance)}${State.studentLoan.active ? " (paying)" : " (deferred)"}</div></div>`
+      : "";
     head.innerHTML = `
       <h4>Current Status</h4>
       <div class="info-row"><div>Stage</div><div class="v">${stage}</div></div>
+      <div class="info-row"><div>${isCollege ? "University" : "School"}</div><div class="v">${isCollege ? (State.collegeName || "—") : (State.schoolName || "—")}</div></div>
       <div class="info-row"><div>Smarts</div><div class="v">${State.stats.smarts}</div></div>
-      ${isCollege ? `<div class="info-row"><div>Major</div><div class="v">${State.collegeMajor || "Undeclared"}</div></div>` : ""}`;
+      ${isCollege ? `<div class="info-row"><div>Major</div><div class="v">${State.collegeMajor || "Undeclared"}</div></div>` : ""}
+      <div class="info-row"><div>Referrals</div><div class="v">${refCount} available</div></div>
+      ${loanInfo}`;
     body.appendChild(head);
 
     // ---- Action list ----
@@ -3643,7 +3873,7 @@ function buildSchoolActions(isCollege) {
   // === Teacher / professor interaction ===
   acts.push({
     label: isCollege ? "Visit a professor's office hours" : "Talk to a teacher after class",
-    desc: "Build a real connection with an educator.",
+    desc: "Build a real connection with an educator — sometimes earns a referral.",
     run: () => {
       const lastName = pick(GAME.constants.lastNames);
       const title = isCollege ? "Professor" : (Math.random() < 0.5 ? "Mr." : "Ms.");
@@ -3654,15 +3884,23 @@ function buildSchoolActions(isCollege) {
         State.stats.mood   = clamp(State.stats.mood + 3);
         if (!State.memory) State.memory = {};
         State.memory.had_mentor = true;
+        // Grant a real referral the player can spend later
+        if (!State.referrals) State.referrals = [];
+        State.referrals.push({
+          from: teacher,
+          kind: isCollege ? "professor" : "teacher",
+          used: false,
+          earnedAtAge: State.age,
+        });
         const scenes = [
-          { t: `${teacher} Took an Interest`, b: `${teacher} asked about my plans after class. We ended up talking for an hour about books and life. Felt like the first adult who actually listened.` },
-          { t: `Mentor Moment`, b: `${teacher} gave me a book I had to read. Said it reminded them of me. I haven't put it down.` },
-          { t: `Real Conversation`, b: `${teacher} stayed late to walk me through a concept. By the end, we weren't even talking about the material anymore — they were giving me real life advice.` },
-          { t: `Recommendation Letter`, b: `${teacher} offered out of the blue to write me a recommendation letter "whenever I need one." I almost cried in the hallway.` },
+          { t: `${teacher} Took an Interest`, b: `${teacher} asked about my plans after class. We ended up talking for an hour about books and life. They offered to write me a recommendation letter whenever I need one.` },
+          { t: `Mentor Moment`, b: `${teacher} gave me a book that "reminded them of me." We've been talking after every class since. They told me they'd vouch for me anywhere.` },
+          { t: `Real Conversation`, b: `${teacher} stayed late to walk me through a concept. By the end they said, "Anytime you need a reference, you have one." I almost cried in the hallway.` },
+          { t: `Recommendation Letter`, b: `${teacher} offered out of the blue to write me a recommendation letter "whenever I need one." I tucked their email into my phone like a treasure.` },
         ];
         const s = r(scenes);
-        logEvent(s.b, "good");
-        showAftermath(s.t, s.b);
+        logEvent(s.b + ` (Referral earned: ${teacher})`, "good");
+        showAftermath(s.t, s.b + `\n\n📌 Referral earned — you can use ${teacher}'s recommendation later when applying for jobs or schools.`);
       } else {
         State.stats.smarts = clamp(State.stats.smarts + 1);
         const scenes = [
@@ -3676,6 +3914,41 @@ function buildSchoolActions(isCollege) {
       }
     },
   });
+
+  // === Use a referral ===
+  const unusedRefs = (State.referrals || []).filter(rf => !rf.used);
+  if (unusedRefs.length > 0) {
+    acts.push({
+      label: `Use a referral (${unusedRefs.length} available)`,
+      desc: `Cash in a recommendation from ${unusedRefs[0].from}${unusedRefs.length > 1 ? " or another mentor" : ""}.`,
+      run: () => {
+        const ref = unusedRefs[0];
+        ref.used = true;
+        // Effect depends on what's available — boost the school path that matters
+        if (State.inCollege) {
+          // College → scholarship boost or internship
+          const amount = 2000 + Math.floor(Math.random() * 6000);
+          State.money += amount;
+          State.stats.smarts = clamp(State.stats.smarts + 2);
+          logEvent(`${ref.from} put in a word for me. I got a paid internship worth ${money(amount)}.`, "good");
+          showAftermath(
+            `${ref.from}'s Letter Worked`,
+            `I asked ${ref.from} to make a call for me. Two weeks later I was interviewing for a paid internship — and they offered me ${money(amount)} for the summer. I owe them everything.`
+          );
+        } else {
+          // School → smarts/mood boost from confidence
+          State.stats.smarts = clamp(State.stats.smarts + 4);
+          State.stats.mood   = clamp(State.stats.mood + 6);
+          logEvent(`${ref.from} wrote a glowing recommendation that opened a door for me.`, "good");
+          showAftermath(
+            `${ref.from} Came Through`,
+            `${ref.from}'s recommendation letter got me into a program I never thought I'd qualify for. I read their words and almost didn't recognize the person they were describing.`
+          );
+        }
+      },
+    });
+  }
+
 
   // === Skip class ===
   acts.push({
@@ -3842,6 +4115,110 @@ function buildSchoolActions(isCollege) {
         }
       },
     });
+
+    // === Prom (only for high schoolers age 16-18) ===
+    if (State.age >= 16 && State.age <= 18) {
+      acts.push({
+        label: "Go to prom",
+        desc: "Dress up. Take a chance. Make a memory.",
+        run: () => {
+          const cost = 200 + Math.floor(Math.random() * 200);
+          if (!debit(cost)) {
+            showAftermath("Couldn't Afford It", `Tickets, outfit, ride share — it adds up. I couldn't swing the ${money(cost)} this year.`);
+            return;
+          }
+          const partner = State.partner ? State.partner.name : null;
+          const dateName = partner || pick(GAME.constants.firstNamesM.concat(GAME.constants.firstNamesF));
+          State.stats.mood = clamp(State.stats.mood + 10);
+          State.stats.looks = clamp(State.stats.looks + 1);
+          if (!State.memory) State.memory = {};
+          State.memory.went_to_prom = true;
+          const scenes = [
+            { t: "Prom Night", b: `I went to prom with ${dateName}. The DJ played our song. We took blurry photos and stayed out until 2am eating fries at a diner.` },
+            { t: "A Night to Remember", b: `I almost didn't go. Then ${dateName} asked me to dance and the whole night flipped. I'll remember it forever.` },
+            { t: "Crowned Royalty", b: `I went to prom and somehow ended up in the prom court announcement. I didn't win, but ${dateName} hugged me anyway and called me royalty.` },
+          ];
+          const s = r(scenes);
+          logEvent(s.b, "good");
+          showAftermath(s.t, s.b);
+        },
+      });
+    }
+
+    // === Science fair (school-aged, smarts-leaning) ===
+    if (State.age >= 9 && State.age <= 17) {
+      acts.push({
+        label: "Enter the science fair",
+        desc: "Smart kids only. Big chance to earn a teacher's referral.",
+        locked: State.stats.smarts < 50,
+        run: () => {
+          const project = pick([
+            "a baking-soda volcano with a twist",
+            "a hydroponic lettuce setup",
+            "a working-model wind turbine",
+            "a homemade lie detector",
+            "a sun-powered cooker",
+            "a study on plant growth and music",
+          ]);
+          const placing = Math.random();
+          if (placing < 0.2) {
+            // First place — referral + big mood/smarts
+            const judge = `Dr. ${pick(GAME.constants.lastNames)}`;
+            State.stats.smarts = clamp(State.stats.smarts + 5);
+            State.stats.mood   = clamp(State.stats.mood + 10);
+            if (!State.referrals) State.referrals = [];
+            State.referrals.push({ from: judge, kind: "mentor", used: false, earnedAtAge: State.age });
+            logEvent(`I won first place at the science fair with ${project}. Judge ${judge} offered to be a reference for me.`, "good");
+            showAftermath(
+              "First Place!",
+              `I won the science fair with ${project}. ${judge}, one of the judges, pulled me aside afterward and offered to write me a recommendation any time. I floated home.\n\n📌 Referral earned — ${judge}.`
+            );
+          } else if (placing < 0.5) {
+            State.stats.smarts = clamp(State.stats.smarts + 3);
+            State.stats.mood   = clamp(State.stats.mood + 4);
+            logEvent(`I placed at the science fair with ${project}.`, "good");
+            showAftermath("Honorable Mention", `I built ${project} and the judges gave me an honorable mention. My parents kept the ribbon on the fridge for months.`);
+          } else {
+            State.stats.smarts = clamp(State.stats.smarts + 1);
+            logEvent(`I entered the science fair with ${project} but didn't place.`, "normal");
+            showAftermath("Didn't Place", `${project} was a fun build but the judges weren't sold. I learned a lot. Next year.`);
+          }
+        },
+      });
+    }
+
+    // === Parent-teacher conference (parents attend if alive) ===
+    if (State.age >= 6 && State.age <= 17 && State.parents && (State.parents.mother || State.parents.father)) {
+      acts.push({
+        label: "Sit through a parent-teacher conference",
+        desc: "Listen to your teacher size you up to your parents.",
+        run: () => {
+          const teacher = `${Math.random() < 0.5 ? "Mr." : "Ms."} ${pick(GAME.constants.lastNames)}`;
+          if (State.stats.smarts >= 65) {
+            State.stats.mood = clamp(State.stats.mood + 6);
+            logEvent(`${teacher} told my parents I was a star student. They beamed all the way home.`, "good");
+            showAftermath(
+              `${teacher} Bragged About Me`,
+              `${teacher} told my parents I was one of their best students. Mom squeezed my shoulder so hard I thought it would bruise. Best car ride home in years.`
+            );
+          } else if (State.stats.smarts >= 40) {
+            State.stats.mood = clamp(State.stats.mood + 1);
+            logEvent(`The conference with ${teacher} went fine — nothing dramatic either way.`, "normal");
+            showAftermath(
+              `Pretty Standard`,
+              `${teacher} told my parents I was "doing alright" and could try harder in math. Mom nodded a lot. Dad mostly checked his phone.`
+            );
+          } else {
+            State.stats.mood = clamp(State.stats.mood - 5);
+            logEvent(`${teacher} delivered a tough report to my parents. The car ride home was silent.`, "bad");
+            showAftermath(
+              `Bad Conference`,
+              `${teacher} told my parents I was falling behind. Dad didn't say anything in the car. I would have preferred yelling.`
+            );
+          }
+        },
+      });
+    }
   }
 
   // === Stand up to a bully ===
@@ -4732,6 +5109,7 @@ function viewMenu() {
         <option value="gemini" ${State.aiProvider === "gemini" ? "selected" : ""}>Google (Gemini)</option>
         <option value="grok" ${State.aiProvider === "grok" ? "selected" : ""}>xAI (Grok)</option>
         <option value="poe" ${State.aiProvider === "poe" ? "selected" : ""}>Poe</option>
+        <option value="openrouter" ${State.aiProvider === "openrouter" ? "selected" : ""}>OpenRouter</option>
       </select>
       <input id="aiModel" placeholder="Model (optional - leave blank for default)" value="${State.aiModel}" />
       <input id="aiKey" type="password" placeholder="API Key" value="${State.apiKey}" />
@@ -5138,11 +5516,12 @@ ${baseSchema}`;
 
   // Default model per provider
   const defaultModels = {
-    anthropic: "claude-sonnet-4-20250514",
-    openai:    "gpt-4o-mini",
-    gemini:    "gemini-2.0-flash",
-    grok:      "grok-2-latest",
-    poe:       "GPT-4o-Mini",
+    anthropic:  "claude-sonnet-4-20250514",
+    openai:     "gpt-4o-mini",
+    gemini:     "gemini-2.0-flash",
+    grok:       "grok-2-latest",
+    poe:        "GPT-4o-Mini",
+    openrouter: "openai/gpt-4o-mini",
   };
   const model = State.aiModel || defaultModels[State.aiProvider] || "gpt-4o-mini";
 
@@ -5193,6 +5572,25 @@ ${baseSchema}`;
     const r = await fetch("https://api.poe.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${State.apiKey}` },
+      body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    return j.choices?.[0]?.message?.content || "";
+
+  } else if (State.aiProvider === "openrouter") {
+    // OpenRouter — OpenAI-compatible chat completions, model strings include
+    // the provider prefix (e.g. "anthropic/claude-3.5-sonnet", "openai/gpt-4o-mini",
+    // "google/gemini-2.0-flash-exp:free"). HTTP-Referer and X-Title are optional
+    // attribution headers OpenRouter uses for the directory.
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${State.apiKey}`,
+        "HTTP-Referer": window.location.origin || "https://ailife.app",
+        "X-Title": "AILife",
+      },
       body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
     });
     const j = await r.json();
