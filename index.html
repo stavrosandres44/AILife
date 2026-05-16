@@ -422,6 +422,44 @@
     line-height: 1.55;
   }
   .about-text strong { color: #222; }
+  .kofi-link {
+    display: inline-block;
+    background: #29ABE0;
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    border: 1px solid #1d8ec0;
+    transition: transform 0.1s, box-shadow 0.1s;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+  }
+  .kofi-link:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.18);
+  }
+  .kofi-link:active { transform: translateY(0); }
+
+  /* AI Activity row — sparkles accent */
+  .ai-activity-row {
+    background: linear-gradient(90deg, rgba(126, 62, 199, 0.06), transparent 70%);
+    border-left: 3px solid #7e3ec7;
+  }
+  .ai-activity-row .row-title { color: #5a2a99; }
+  .ai-activity-row.locked { opacity: 0.6; }
+  .beta-badge {
+    display: inline-block;
+    background: #c98a2b;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-left: 8px;
+    vertical-align: 2px;
+  }
   .form-section button {
     padding: 10px 14px;
     border: none;
@@ -1152,6 +1190,6 @@
   <div class="dlg-hint" id="dialogHint" style="display:none;">click anywhere to leave</div>
 </div>
 
-<script src="function.js?v=19"></script>
+<script src="function.js?v=23"></script>
 </body>
 </html>
