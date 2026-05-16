@@ -27,7 +27,7 @@ jobs:
       - name: Configurar Pages
         uses: actions/configure-pages@v5
         with:
-          cname: bitlife.cloud
+          cname: www.bitlife.cloud
 
       - name: Subir artefactos de la web
         uses: actions/upload-pages-artifact@v3
