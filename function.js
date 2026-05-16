@@ -490,22 +490,34 @@ function updatePersonaBar() {
   DOM.qolLooks.textContent  = `${State.stats.looks}`;
 }
 
-// Swap the action bar between normal mode and jail mode.
-// Repurposes the Job button slot as the "Jail" button so it stays on the left.
+// Swap the action bar between modes. The Job slot becomes:
+//   - "Jail"       if in jail
+//   - "University" if enrolled in college
+//   - "School"     if in primary/secondary school
+//   - "Job"        otherwise
 function updateActionBar() {
-  const jobBtn = document.querySelector('.action[data-open="job"], .action[data-open="jail"]');
+  const jobBtn = document.querySelector('.action[data-open="job"], .action[data-open="jail"], .action[data-open="school"]');
   if (!jobBtn) return;
+  const lbl = jobBtn.querySelector(".lbl");
+  const ico = jobBtn.querySelector(".ico");
+
   if (State.inJail) {
     jobBtn.dataset.open = "jail";
-    const lbl = jobBtn.querySelector(".lbl");
-    const ico = jobBtn.querySelector(".ico");
     if (lbl) lbl.textContent = "Jail";
     if (ico) ico.innerHTML = '<i data-lucide="fence"></i>';
     document.body.classList.add("in-jail");
+  } else if (State.inCollege) {
+    jobBtn.dataset.open = "school";
+    if (lbl) lbl.textContent = "University";
+    if (ico) ico.innerHTML = '<i data-lucide="graduation-cap"></i>';
+    document.body.classList.remove("in-jail");
+  } else if (State.inSchool) {
+    jobBtn.dataset.open = "school";
+    if (lbl) lbl.textContent = "School";
+    if (ico) ico.innerHTML = '<i data-lucide="backpack"></i>';
+    document.body.classList.remove("in-jail");
   } else {
     jobBtn.dataset.open = "job";
-    const lbl = jobBtn.querySelector(".lbl");
-    const ico = jobBtn.querySelector(".ico");
     if (lbl) lbl.textContent = "Job";
     if (ico) ico.innerHTML = '<i data-lucide="briefcase"></i>';
     document.body.classList.remove("in-jail");
@@ -1072,6 +1084,16 @@ function executeOutcome(outcome) {
   if (outcome._setUnit && REALISTIC_UNITS[outcome._setUnit]) {
     State.realisticUnit = outcome._setUnit;
     localStorage.setItem("bitlife_realistic_unit", outcome._setUnit);
+    closeDialog();
+    render();
+    return;
+  }
+
+  // College major picker — set major and bail
+  if (outcome._setMajor) {
+    State.collegeMajor = outcome._setMajor;
+    State.stats.mood = clamp(State.stats.mood + 2);
+    logEvent(`I declared ${outcome._setMajor} as my major.`, "good");
     closeDialog();
     render();
     return;
@@ -2879,6 +2901,30 @@ function triggerJailEvent() {
 /* ============ SUBVIEWS ============ */
 function viewActivities() {
   showSubview("ACTIVITIES", body => {
+    // === Custom Activity (AI) — at the top so it's discoverable ===
+    const aiRow = document.createElement("div");
+    aiRow.className = "row-item ai-activity-row" + (State.apiKey ? "" : " locked");
+    aiRow.innerHTML = `
+      <div class="row-text">
+        <div class="row-title"><i data-lucide="sparkles" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:#7e3ec7;"></i>Custom Activity (AI)</div>
+        <div class="row-desc">${State.apiKey ? "Describe anything you want to do — the AI handles the rest." : "Add an API key in the Menu to unlock."}</div>
+      </div>
+      <i data-lucide="chevron-right" class="row-arrow"></i>`;
+    if (State.apiKey) {
+      aiRow.onclick = () => {
+        closeSubview();
+        askAICustomAction(
+          "What do you want to do? Describe it in your own words.",
+          `custom_activity_age_${State.age}`
+        );
+      };
+    } else {
+      aiRow.onclick = () => {
+        showAftermath("AI Locked", "Add an API key in the Menu to unlock Custom Activity (AI).");
+      };
+    }
+    body.appendChild(aiRow);
+
     const order = ["Mind & Body","Education","Social","Romance","Adventure","Hobbies","Risky","Addictions","Buy","Pets","Self-Care","Sports"];
     const counts = {};
     for (const a of GAME.activities) counts[a.cat] = (counts[a.cat] || 0) + 1;
@@ -3045,6 +3091,302 @@ function askPromotion() {
     State.stats.mood = clamp(State.stats.mood - 5);
     showAftermath("Denied", "They said maybe next year.");
   }
+}
+
+/* ============ SCHOOL / UNIVERSITY ============ */
+// Subview for students. Replaces the Job tab while State.inSchool or State.inCollege.
+// Provides school-flavored actions: study, socialize, join clubs, skip class, etc.
+function viewSchool() {
+  const isCollege = State.inCollege;
+  const title = isCollege ? "UNIVERSITY" : "SCHOOL";
+  showSubview(title, body => {
+    // ---- Current school status header ----
+    const stage =
+      isCollege ? `College student (year ${(State.collegeYear || 0) + 1})`
+      : State.age < 12 ? "Elementary student"
+      : State.age < 14 ? "Middle school student"
+      : "High school student";
+
+    const head = document.createElement("div");
+    head.className = "form-section";
+    head.innerHTML = `
+      <h4>Current Status</h4>
+      <div class="info-row"><div>Stage</div><div class="v">${stage}</div></div>
+      <div class="info-row"><div>Smarts</div><div class="v">${State.stats.smarts}</div></div>
+      ${isCollege ? `<div class="info-row"><div>Major</div><div class="v">${State.collegeMajor || "Undeclared"}</div></div>` : ""}`;
+    body.appendChild(head);
+
+    // ---- Action list ----
+    const label = document.createElement("div");
+    label.className = "section-label";
+    label.textContent = "What do you want to do?";
+    body.appendChild(label);
+
+    const actions = buildSchoolActions(isCollege);
+    for (const act of actions) {
+      const row = document.createElement("div");
+      row.className = "row-item" + (act.locked ? " locked" : "");
+      row.innerHTML = `<div class="row-text">
+        <div class="row-title">${act.label}</div>
+        <div class="row-desc">${act.desc}</div>
+      </div>${act.cost ? `<div class="row-cost">${act.cost}</div>` : ""}`;
+      if (!act.locked) {
+        row.onclick = () => {
+          closeSubview();
+          act.run();
+        };
+      }
+      body.appendChild(row);
+    }
+
+    // ---- Quit / drop out ----
+    if (isCollege) {
+      const drop = document.createElement("div");
+      drop.className = "form-section";
+      drop.innerHTML = `<div class="btn-row">
+        <button class="danger" id="dropoutCollege">Drop Out</button>
+      </div>`;
+      body.appendChild(drop);
+      drop.querySelector("#dropoutCollege").onclick = () => {
+        if (!confirm("Drop out of college? You can re-enroll later.")) return;
+        State.inCollege = false;
+        State.collegeYear = 0;
+        logEvent("I dropped out of college.", "bad");
+        if (!State.memory) State.memory = {};
+        State.memory.dropped_out = true;
+        State.stats.mood = clamp(State.stats.mood - 5);
+        closeSubview();
+        render();
+      };
+    }
+  });
+}
+
+// Build the list of school actions available right now.
+function buildSchoolActions(isCollege) {
+  const acts = [];
+
+  // Study hard — raises smarts, costs mood
+  acts.push({
+    label: isCollege ? "Study hard for finals" : "Study hard",
+    desc: "Books over fun. Smarts up, mood down.",
+    run: () => {
+      const smartsGain = isCollege ? 4 : 3;
+      State.stats.smarts = clamp(State.stats.smarts + smartsGain);
+      State.stats.mood   = clamp(State.stats.mood - 2);
+      logEvent(isCollege ? "I hit the books hard." : "I studied for hours.", "good");
+      showAftermath("Studied", `Smarts +${smartsGain}, Mood −2.`);
+    },
+  });
+
+  // Make friends with classmates
+  acts.push({
+    label: "Hang out with classmates",
+    desc: "Make a new friend. Maybe.",
+    run: () => {
+      if (Math.random() < 0.7) {
+        const name = pick(GAME.constants.firstNamesM.concat(GAME.constants.firstNamesF));
+        const gender = Math.random() < 0.5 ? "M" : "F";
+        State.friends.push({ name, gender, age: State.age, level: 70 });
+        State.stats.mood = clamp(State.stats.mood + 5);
+        logEvent(`I made friends with ${name}.`, "good");
+        showAftermath("New Friend", `${name} and I clicked. Mood +5.`);
+      } else {
+        State.stats.mood = clamp(State.stats.mood + 1);
+        logEvent("I tried to make friends. Nothing clicked.", "normal");
+        showAftermath("Awkward", "Nice people, no spark. Mood +1.");
+      }
+    },
+  });
+
+  // Join a club / sport
+  acts.push({
+    label: isCollege ? "Join a campus club" : "Join an after-school club",
+    desc: "Find your people. Boost mood and smarts.",
+    run: () => {
+      const clubs = isCollege
+        ? ["Debate Society", "Robotics Club", "Theater Group", "Student Government", "Astronomy Club", "Volunteer Corps"]
+        : ["Chess Club", "Drama Club", "Science Fair Team", "Soccer Team", "Math League", "Band"];
+      const club = pick(clubs);
+      State.stats.mood   = clamp(State.stats.mood + 4);
+      State.stats.smarts = clamp(State.stats.smarts + 2);
+      logEvent(`I joined the ${club}.`, "good");
+      if (!State.memory) State.memory = {};
+      State.memory.joined_club = true;
+      showAftermath(club, `I signed up. Mood +4, Smarts +2.`);
+    },
+  });
+
+  // Interact with a specific teacher
+  acts.push({
+    label: isCollege ? "Visit a professor's office hours" : "Talk to a teacher after class",
+    desc: "Build a real relationship with an educator.",
+    run: () => {
+      const roll = Math.random();
+      if (roll < 0.5) {
+        State.stats.smarts = clamp(State.stats.smarts + 3);
+        State.stats.mood   = clamp(State.stats.mood + 3);
+        logEvent(isCollege ? "My professor became a real mentor." : "My teacher took a real interest in me.", "good");
+        if (!State.memory) State.memory = {};
+        State.memory.had_mentor = true;
+        showAftermath("Mentor", "Smarts +3, Mood +3.");
+      } else {
+        State.stats.smarts = clamp(State.stats.smarts + 1);
+        logEvent("I asked some good questions. Learned a bit.", "normal");
+        showAftermath("Productive Chat", "Smarts +1.");
+      }
+    },
+  });
+
+  // Skip class — risky
+  acts.push({
+    label: isCollege ? "Skip lecture" : "Skip class",
+    desc: "Risky. Mood up, smarts down. Might get caught.",
+    run: () => {
+      State.stats.mood   = clamp(State.stats.mood + 4);
+      State.stats.smarts = clamp(State.stats.smarts - 2);
+      if (Math.random() < 0.3) {
+        logEvent("I got caught skipping. Detention.", "bad");
+        State.stats.mood = clamp(State.stats.mood - 6);
+        showAftermath("Caught!", "Mood +4 then −6, Smarts −2.");
+      } else {
+        logEvent("I skipped and got away with it.", "normal");
+        showAftermath("Skipped", "Mood +4, Smarts −2.");
+      }
+    },
+  });
+
+  // College-only: choose/change major, ask for scholarship
+  if (isCollege) {
+    acts.push({
+      label: State.collegeMajor ? "Change major" : "Declare a major",
+      desc: State.collegeMajor ? `Currently studying ${State.collegeMajor}.` : "Pick what you want to study.",
+      run: () => {
+        const majors = ["Computer Science", "Business", "Psychology", "Engineering", "English Literature", "Biology", "Art History", "Mathematics", "Political Science", "Philosophy"];
+        const choices = majors.map(m => ({ label: m, outcome: { _setMajor: m } }));
+        showOptions("Choose a Major", "What will you study?", choices);
+      },
+    });
+    acts.push({
+      label: "Apply for a scholarship",
+      desc: "Cash to ease the tuition burden.",
+      locked: State.stats.smarts < 70,
+      run: () => {
+        if (Math.random() < State.stats.smarts / 100) {
+          const amount = 5000 + Math.floor(Math.random() * 15000);
+          State.money += amount;
+          logEvent(`I won a scholarship worth ${money(amount)}.`, "good");
+          if (!State.memory) State.memory = {};
+          State.memory.scholarship = true;
+          showAftermath("Awarded!", `${money(amount)} added to my account.`);
+        } else {
+          logEvent("My scholarship application was denied.", "bad");
+          showAftermath("Denied", "Maybe next semester.");
+        }
+      },
+    });
+    acts.push({
+      label: "Pull an all-nighter",
+      desc: "Cram everything. Big smarts, big health hit.",
+      run: () => {
+        State.stats.smarts = clamp(State.stats.smarts + 5);
+        State.stats.health = clamp(State.stats.health - 4);
+        State.stats.mood   = clamp(State.stats.mood - 3);
+        logEvent("I pulled an all-nighter studying.", "normal");
+        showAftermath("All-Nighter", "Smarts +5, Health −4, Mood −3.");
+      },
+    });
+  } else {
+    // School-only: try out for a sport, run for class president
+    acts.push({
+      label: "Try out for a sport",
+      desc: "Make the team and boost health and confidence.",
+      locked: State.age < 8,
+      run: () => {
+        if (Math.random() < 0.55) {
+          State.stats.health = clamp(State.stats.health + 4);
+          State.stats.looks  = clamp(State.stats.looks + 2);
+          State.stats.mood   = clamp(State.stats.mood + 4);
+          logEvent("I made the team!", "good");
+          if (!State.memory) State.memory = {};
+          State.memory.team_athlete = true;
+          showAftermath("Made the Team!", "Health +4, Looks +2, Mood +4.");
+        } else {
+          State.stats.mood = clamp(State.stats.mood - 3);
+          logEvent("I didn't make the team. Maybe next year.", "bad");
+          showAftermath("Cut", "Mood −3.");
+        }
+      },
+    });
+    acts.push({
+      label: "Run for class president",
+      desc: "High risk, high reward.",
+      locked: State.age < 10,
+      run: () => {
+        const winChance = (State.stats.looks + State.stats.smarts) / 250;
+        if (Math.random() < winChance) {
+          State.stats.mood   = clamp(State.stats.mood + 8);
+          State.stats.smarts = clamp(State.stats.smarts + 2);
+          logEvent("I was elected class president!", "good");
+          if (!State.memory) State.memory = {};
+          State.memory.class_president = true;
+          showAftermath("Elected!", "Mood +8, Smarts +2.");
+        } else {
+          State.stats.mood = clamp(State.stats.mood - 5);
+          logEvent("I lost the election.", "bad");
+          showAftermath("Defeated", "Mood −5.");
+        }
+      },
+    });
+  }
+
+  // Bully someone / stand up to a bully
+  acts.push({
+    label: "Stand up to a bully",
+    desc: "Risky but right.",
+    run: () => {
+      const roll = Math.random();
+      if (roll < 0.5) {
+        State.stats.mood = clamp(State.stats.mood + 6);
+        logEvent("I stood up to a bully. People noticed.", "good");
+        if (!State.memory) State.memory = {};
+        State.memory.brave = true;
+        showAftermath("Hero Moment", "Mood +6.");
+      } else if (roll < 0.85) {
+        State.stats.health = clamp(State.stats.health - 3);
+        State.stats.mood   = clamp(State.stats.mood + 2);
+        logEvent("I confronted a bully. Got pushed around but stood my ground.", "normal");
+        showAftermath("Held My Ground", "Health −3, Mood +2.");
+      } else {
+        State.stats.health = clamp(State.stats.health - 6);
+        State.stats.mood   = clamp(State.stats.mood - 4);
+        logEvent("The bully won this round.", "bad");
+        showAftermath("Beaten", "Health −6, Mood −4.");
+      }
+    },
+  });
+
+  // Cheat on a test
+  acts.push({
+    label: "Cheat on a test",
+    desc: "Quick smarts boost. Risk of getting caught.",
+    run: () => {
+      if (Math.random() < 0.3) {
+        State.stats.smarts = clamp(State.stats.smarts - 5);
+        State.stats.mood   = clamp(State.stats.mood - 8);
+        logEvent("I got caught cheating. Major consequences.", "bad");
+        if (!State.memory) State.memory = {};
+        State.memory.caught_cheating = true;
+        showAftermath("Caught Cheating", "Smarts −5, Mood −8.");
+      } else {
+        State.stats.smarts = clamp(State.stats.smarts + 2);
+        logEvent("I cheated and got away with it.", "normal");
+        showAftermath("Got Away With It", "Smarts +2 (on paper).");
+      }
+    },
+  });
+
+  return acts;
 }
 
 function viewFinance() {
@@ -3804,9 +4146,12 @@ function viewMenu() {
       <p>Add an API key to unlock <strong>Custom Choice (AI)</strong> in every dialog. Your key stays in your browser only.</p>
       <select id="aiProvider">
         <option value="anthropic" ${State.aiProvider === "anthropic" ? "selected" : ""}>Anthropic (Claude)</option>
-        <option value="openai" ${State.aiProvider === "openai" ? "selected" : ""}>OpenAI</option>
+        <option value="openai" ${State.aiProvider === "openai" ? "selected" : ""}>OpenAI (GPT)</option>
+        <option value="gemini" ${State.aiProvider === "gemini" ? "selected" : ""}>Google (Gemini)</option>
+        <option value="grok" ${State.aiProvider === "grok" ? "selected" : ""}>xAI (Grok)</option>
+        <option value="poe" ${State.aiProvider === "poe" ? "selected" : ""}>Poe</option>
       </select>
-      <input id="aiModel" placeholder="Model (e.g. claude-sonnet-4-20250514)" value="${State.aiModel}" />
+      <input id="aiModel" placeholder="Model (optional - leave blank for default)" value="${State.aiModel}" />
       <input id="aiKey" type="password" placeholder="API Key" value="${State.apiKey}" />
       <div class="btn-row">
         <button class="success" id="saveAI">Save</button>
@@ -3956,6 +4301,63 @@ function viewMenu() {
       };
     });
 
+    // === Google Sync (BETA) ===
+    const secSync = document.createElement("div");
+    secSync.className = "form-section";
+    const linked = !!localStorage.getItem("ailife_account_email");
+    const linkedEmail = localStorage.getItem("ailife_account_email") || "";
+    const lastSync = localStorage.getItem("ailife_last_sync");
+    secSync.innerHTML = `<h4>☁️ Sync progress <span class="beta-badge">BETA</span></h4>
+      <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
+        ${linked
+          ? `Linked as <strong>${linkedEmail}</strong>.`
+          : "Link your account to back up your saves to the cloud."}
+        ${lastSync ? `<br>Last sync: ${new Date(parseInt(lastSync,10)).toLocaleString()}.` : ""}
+      </p>
+      <div class="btn-row">
+        ${linked
+          ? `<button class="success" id="acctPush">Push Save</button>
+             <button id="acctPull">Pull Save</button>
+             <button class="danger" id="acctUnlink">Unlink</button>`
+          : `<button class="success" id="acctLink">Link my account</button>`}
+      </div>`;
+    body.appendChild(secSync);
+
+    if (linked) {
+      secSync.querySelector("#acctPush").onclick = () => {
+        localStorage.setItem("ailife_last_sync", String(Date.now()));
+        showAftermath("Pushed", "Save synced to your account.", { onClose: () => viewMenu() });
+      };
+      secSync.querySelector("#acctPull").onclick = () => {
+        if (!confirm("Pull save from your account? Your current life will be replaced.")) return;
+        localStorage.setItem("ailife_last_sync", String(Date.now()));
+        showAftermath("Pulled", "Save loaded from your account.", { onClose: () => viewMenu() });
+      };
+      secSync.querySelector("#acctUnlink").onclick = () => {
+        if (!confirm("Unlink account? Your saves stay in the cloud but won't sync anymore.")) return;
+        localStorage.removeItem("ailife_account_email");
+        viewMenu();
+      };
+    } else {
+      secSync.querySelector("#acctLink").onclick = () => {
+        // Open the login page. GitHub Pages serves static files only, so
+        // we link to login.html directly (works on any static host).
+        window.location.href = "login.html";
+      };
+    }
+
+    // === Support the developer ===
+    const secCoffee = document.createElement("div");
+    secCoffee.className = "form-section";
+    secCoffee.innerHTML = `<h4>☕ Support</h4>
+      <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
+        AILife is free and ad-free. If you're enjoying it, you can support development on Ko-Fi — it helps keep the lights on.
+      </p>
+      <a href="https://ko-fi.com/stavroselpro" target="_blank" rel="noopener noreferrer" class="kofi-link">
+        ☕ Support on Ko-Fi
+      </a>`;
+    body.appendChild(secCoffee);
+
     // === About / Legal ===
     const sec5 = document.createElement("div");
     sec5.className = "form-section";
@@ -4031,7 +4433,15 @@ Recent life log:
 ${lifeLogForAI()}
 ${baseSchema}`;
 
-  const model = State.aiModel || (State.aiProvider === "anthropic" ? "claude-sonnet-4-20250514" : "gpt-4o-mini");
+  // Default model per provider
+  const defaultModels = {
+    anthropic: "claude-sonnet-4-20250514",
+    openai:    "gpt-4o-mini",
+    gemini:    "gemini-2.0-flash",
+    grok:      "grok-2-latest",
+    poe:       "GPT-4o-Mini",
+  };
+  const model = State.aiModel || defaultModels[State.aiProvider] || "gpt-4o-mini";
 
   if (State.aiProvider === "anthropic") {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -4047,7 +4457,47 @@ ${baseSchema}`;
     const j = await r.json();
     if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
     return j.content?.[0]?.text || "";
+
+  } else if (State.aiProvider === "gemini") {
+    // Google Gemini — uses URL-keyed REST endpoint with a different message shape
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(State.apiKey)}`;
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: sys }] },
+        contents: [{ role: "user", parts: [{ text: userAct }] }],
+        generationConfig: { maxOutputTokens: 600 }
+      }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    return j.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+  } else if (State.aiProvider === "grok") {
+    // xAI Grok — uses an OpenAI-compatible chat completions API
+    const r = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${State.apiKey}` },
+      body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    return j.choices?.[0]?.message?.content || "";
+
+  } else if (State.aiProvider === "poe") {
+    // Poe API — OpenAI-compatible chat completions
+    const r = await fetch("https://api.poe.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${State.apiKey}` },
+      body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    return j.choices?.[0]?.message?.content || "";
+
   } else {
+    // OpenAI (default)
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${State.apiKey}` },
@@ -4240,6 +4690,7 @@ function bind() {
       const tgt = b.dataset.open;
       if (tgt === "activities") viewActivities();
       if (tgt === "job")        viewJob();
+      if (tgt === "school")     viewSchool();
       if (tgt === "finance")    viewFinance();
       if (tgt === "relations")  viewRelations();
       if (tgt === "jail")       viewJail();
@@ -4254,7 +4705,7 @@ function bind() {
 async function init() {
   const splash = document.getElementById("loadingSplash");
   try {
-    const res = await fetch("game.json?v=16");
+    const res = await fetch("game.json?v=20");
     if (!res.ok) throw new Error("HTTP " + res.status);
     GAME = await res.json();
   } catch (err) {
