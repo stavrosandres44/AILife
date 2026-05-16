@@ -166,6 +166,16 @@ function blankState() {
     inGradSchool: false, gradYear: 0,
     money: 0, bank: 0,
     investments: { stocks: 0, crypto: 0, realEstate: 0 },
+    // ----- Housing -----
+    // null         = living with parents / no housing concerns (children, students)
+    // "rented"     = renting (yearly rent debited from money/bank)
+    // "owned"      = owns a house (no rent; realEstate value > 0)
+    // "homeless"   = evicted, severe penalties until they get back on their feet
+    housing: null,
+    rent: 0,              // annual rent due while housing === "rented"
+    rentMissed: 0,        // consecutive years rent went unpaid
+    housingName: null,    // display label like "Studio Apartment", "Two-Bedroom House"
+    momHouseGiftOffered: false, // ensure the age-20 mom-help event fires only once
     stats: { mood: 70, health: 80, smarts: Math.floor(Math.random() * 30) + 45, looks: Math.floor(Math.random() * 30) + 45 },
     criminalRecord: 0, addictions: [], badges: [],
     aiBadges: {}, // custom AI-granted badges: id -> {name, icon, desc}
@@ -187,6 +197,11 @@ function blankState() {
     // Government documents: { issued: <age issued>, expiresAt: <age it expires>, expired: bool }
     governmentId: null,
     passport: null,
+    driverLicense: null,
+    // One-shot flags so the mandatory licensing events fire exactly once each:
+    govIdOffered: false,
+    passportOffered: false,
+    driverLicenseOffered: false,
   };
 }
 
@@ -252,6 +267,203 @@ function spend(amount) {
 
 function netWorth() {
   return State.bank + State.money + State.investments.stocks + State.investments.crypto + State.investments.realEstate;
+}
+
+/* ============ HOUSING ============
+ * Players transition through housing as they age:
+ *   <18                 -> null (living with parents)
+ *   18+ (out of school) -> auto-rents a modest place; rent debited yearly
+ *   buys a house        -> "owned"; no rent, realEstate value tracks equity
+ *   evicted             -> "homeless"; penalties until they recover
+ */
+
+// Subtract money from cash first, then bank. Returns true if fully covered.
+function debit(amount) {
+  if (amount <= 0) return true;
+  if (State.money >= amount) { State.money -= amount; return true; }
+  amount -= State.money;
+  State.money = 0;
+  if (State.bank >= amount) { State.bank -= amount; return true; }
+  amount -= State.bank;
+  State.bank = 0;
+  return false; // couldn't pay in full
+}
+
+// Rough annual rent for a player just starting out. Job salary tier nudges it.
+function defaultRentForAge(age) {
+  // Base rent at 18-21: about $7,200/yr ($600/mo studio). Scales up modestly with age.
+  let base = 7200;
+  if (age >= 25) base = 10800;
+  if (age >= 30) base = 14400;
+  if (State.job && State.job.salary >= 100000) base = Math.round(base * 1.4); // they pick nicer places
+  return base;
+}
+
+// Pick a name for a default rental
+function defaultRentalName() {
+  return pick(["Studio Apartment", "One-Bedroom Walkup", "Rented Room", "Shared Apartment", "Basement Suite"]);
+}
+
+// Move into a default rental — used when an adult first leaves school / parents.
+function moveIntoRental() {
+  State.housing = "rented";
+  State.rent = defaultRentForAge(State.age);
+  State.rentMissed = 0;
+  State.housingName = defaultRentalName();
+  logEvent(`I moved into my own place — a ${State.housingName.toLowerCase()}. Rent is ${money(State.rent)}/year.`, "normal");
+}
+
+// Become homeless after eviction or by choice
+function becomeHomeless(reason) {
+  State.housing = "homeless";
+  State.rent = 0;
+  State.housingName = null;
+  State.stats.mood   = clamp(State.stats.mood   - 15);
+  State.stats.health = clamp(State.stats.health - 8);
+  State.stats.looks  = clamp(State.stats.looks  - 5);
+  // Ongoing penalty until they recover housing
+  State.ongoing.push({ stats: { mood: -2, health: -2 }, yearsLeft: 99, label: "Homeless" });
+  logEvent(reason || "I lost my home and ended up on the street.", "bad");
+  if (!State.memory) State.memory = {};
+  State.memory.was_homeless = true;
+}
+
+// Recover from homelessness when player has a job and at least $2000
+function recoverFromHomeless() {
+  if (State.housing !== "homeless") return false;
+  if (!State.job) return false;
+  if (netWorth() < 2000) return false;
+  State.housing = "rented";
+  State.rent = defaultRentForAge(State.age);
+  State.rentMissed = 0;
+  State.housingName = pick(["Studio Apartment", "Tiny One-Bedroom", "Rented Room"]);
+  // Drop the homeless ongoing penalty
+  State.ongoing = (State.ongoing || []).filter(o => o.label !== "Homeless");
+  State.stats.mood = clamp(State.stats.mood + 10);
+  logEvent(`I got off the street and rented a ${State.housingName.toLowerCase()}. Trying to build back.`, "good");
+  return true;
+}
+
+// Called yearly. Handles rent, the age-20 mom-help event, eviction, recovery.
+function processHousing() {
+  // Below 18, or in school, or in jail: no housing concerns
+  if (State.age < 18 || State.inJail) return;
+  if (State.inSchool || State.inCollege) return; // still with parents / dorms
+
+  // Age 18 transition: if not already housed, start renting automatically.
+  if (State.housing == null && State.age >= 18) {
+    moveIntoRental();
+  }
+
+  // Age 20: mother may offer help buying a house. Fires once.
+  if (State.age === 20 && !State.momHouseGiftOffered) {
+    State.momHouseGiftOffered = true;
+    triggerMomHouseEvent();
+    return; // event handles flow
+  }
+
+  // Yearly rent
+  if (State.housing === "rented") {
+    const paid = debit(State.rent);
+    if (paid) {
+      State.rentMissed = 0;
+    } else {
+      State.rentMissed++;
+      if (State.rentMissed >= 2) {
+        // Evicted
+        becomeHomeless("I couldn't make rent two years running. The landlord changed the locks. I was on the street.");
+      } else {
+        logEvent(`I couldn't pay my rent in full this year. The landlord gave me one more chance.`, "bad");
+        State.stats.mood = clamp(State.stats.mood - 8);
+      }
+    }
+  }
+
+  // Auto-recovery if homeless and player rebuilt
+  if (State.housing === "homeless") {
+    recoverFromHomeless();
+  }
+}
+
+// One-time event at age 20: mother offers to help with a down payment.
+function triggerMomHouseEvent() {
+  // If mother already dead, no event
+  if (!State.parents || !State.parents.mother) return;
+  // 50% chance she's in a position to help; if not, just narrate
+  const canHelp = Math.random() < 0.5;
+  if (!canHelp) {
+    showAftermath(
+      "Mom Sat Me Down",
+      `Mom sat me down at the kitchen table and told me she wished she could help me buy a place, but she just doesn't have it right now. She apologized like it was her fault.`,
+      { onClose: () => { State.stats.mood = clamp(State.stats.mood - 3); render(); saveGame(); } }
+    );
+    logEvent("Mom told me she can't afford to help me buy a house. She felt awful about it.", "normal");
+    return;
+  }
+
+  // She CAN help — branch dialog
+  const giftAmount = 30000 + Math.floor(Math.random() * 30000); // $30k–$60k
+  const housePrice = 150000 + Math.floor(Math.random() * 100000); // $150k–$250k
+  showOptions(
+    "Mom Wants to Help",
+    `Mom pulled me aside today. She offered to give me ${money(giftAmount)} toward buying my first house. The place I've been eyeing costs about ${money(housePrice)}.`,
+    [
+      {
+        label: `Accept and buy the house (${money(housePrice - giftAmount)} from me)`,
+        run: () => {
+          const myShare = housePrice - giftAmount;
+          if (netWorth() < myShare) {
+            // Player can't actually afford their share — short-circuit with a softer outcome
+            showAftermath(
+              "Numbers Didn't Work",
+              `I sat down with mom and we did the math. Even with her gift, I couldn't cover the rest. We hugged and agreed I'd save and try again later.`
+            );
+            logEvent("Mom offered me a down payment, but I couldn't cover the rest yet. I kept renting.", "normal");
+            return;
+          }
+          debit(myShare);
+          State.investments.realEstate += housePrice;
+          State.housing = "owned";
+          State.rent = 0;
+          State.rentMissed = 0;
+          State.housingName = "My First House";
+          State.stats.mood = clamp(State.stats.mood + 15);
+          if (!State.memory) State.memory = {};
+          State.memory.mom_bought_house = true;
+          logEvent(`Mom gifted me ${money(giftAmount)} and I bought my first house. I cried signing the papers.`, "good");
+          showAftermath(
+            "Keys in Hand",
+            `Mom handed me a ${money(giftAmount)} check and I put the rest down on my first house. Standing in the empty living room with the keys in my pocket, I almost couldn't breathe.`
+          );
+        }
+      },
+      {
+        label: `Accept the money, keep renting`,
+        run: () => {
+          State.money += giftAmount;
+          State.stats.mood = clamp(State.stats.mood + 8);
+          logEvent(`Mom gave me ${money(giftAmount)} toward a house. I held onto it — not ready to buy yet.`, "good");
+          showAftermath(
+            "Banking the Gift",
+            `I deposited mom's gift and decided to keep renting for now. It felt strange having that kind of money sit there — but it was a real safety net.`
+          );
+        }
+      },
+      {
+        label: `Decline — she needs it more than I do`,
+        run: () => {
+          State.stats.mood = clamp(State.stats.mood + 5);
+          if (!State.memory) State.memory = {};
+          State.memory.declined_mom_gift = true;
+          logEvent(`Mom offered me ${money(giftAmount)} for a house. I told her to keep it — she needed it more.`, "good");
+          showAftermath(
+            "She Cried",
+            `Mom cried when I said no. She kept insisting — I kept insisting back. Eventually she hugged me and said she was proud. I went home feeling taller than I had in years.`
+          );
+        }
+      },
+    ]
+  );
 }
 
 /* ============ AUTOSAVE ============ */
@@ -450,7 +662,8 @@ function updatePersonaBar() {
   const name = State.firstName || State.name || "—";
   DOM.personaName.textContent = `${name}, age ${State.age}`;
 
-  // Career / life-stage status line
+  // Career / life-stage status line. Homeless overrides everything below
+  // jail/death/baby/school so the player sees it prominently.
   let status;
   if (!State.alive) status = "Deceased";
   else if (State.inJail) status = `Incarcerated (year ${State.inJail.served + 1} of ${State.inJail.sentence})`;
@@ -459,6 +672,7 @@ function updatePersonaBar() {
   else if (State.inSchool && State.age < 14) status = "Middle school student";
   else if (State.inSchool && State.age < 19) status = "High school student";
   else if (State.inCollege) status = "College student";
+  else if (State.housing === "homeless") status = State.job ? `Homeless — works as ${State.job.title}` : "Homeless";
   else if (State.job) status = `${State.job.title} — ${money(State.job.salary)}/yr`;
   else if (State.age >= 65) status = "Retired";
   else if (State.age >= 18) status = "Unemployed";
@@ -1224,8 +1438,10 @@ function handleOutcomeSpecial(spec) {
   // Government documents
   if (spec === "issueId")        { issueDocument("id"); return; }
   if (spec === "issuePassport")  { issueDocument("passport"); return; }
+  if (spec === "issueDriverLicense") { issueDocument("driverLicense"); return; }
   if (spec === "renewId")        { renewDocument("governmentId"); return; }
   if (spec === "renewPassport")  { renewDocument("passport"); return; }
+  if (spec === "renewDriverLicense") { renewDocument("driverLicense"); return; }
   if (spec === "newPartner")     { createPartner(); return; }
   if (spec === "addChild" || spec === "newChild") { addChild(); return; }
   if (spec.startsWith("addPet:")) {
@@ -2483,17 +2699,21 @@ function issueDocument(kind) {
     State.governmentId = { issued: State.age, expiresAt, expired: false };
   } else if (kind === "passport") {
     State.passport = { issued: State.age, expiresAt, expired: false };
+  } else if (kind === "driverLicense") {
+    State.driverLicense = { issued: State.age, expiresAt, expired: false };
   }
 }
 
 function checkDocumentExpiry() {
   // Called every year. Mark expired docs and log a one-time notice.
-  for (const kind of ["governmentId", "passport"]) {
+  for (const kind of ["governmentId", "passport", "driverLicense"]) {
     const doc = State[kind];
     if (!doc) continue;
     if (!doc.expired && State.age >= doc.expiresAt) {
       doc.expired = true;
-      const label = kind === "governmentId" ? "Government ID" : "passport";
+      const label = kind === "governmentId" ? "Government ID"
+                  : kind === "passport"     ? "passport"
+                  : "driver's license";
       logEvent(`My ${label} expired. I'll need to renew it.`, "bad");
     }
   }
@@ -2506,6 +2726,140 @@ function renewDocument(kind) {
   doc.issued = State.age;
   doc.expiresAt = State.age + valid;
   doc.expired = false;
+}
+
+// ============ MANDATORY LICENSING EVENTS ============
+// Fired once at the right age from advanceYear(). Each opens a dialog the
+// player MUST resolve (accept, defer, or skip) — there's no random gate.
+function triggerLicensingEvents() {
+  if (!State.alive || State.inJail) return;
+
+  // === Government ID at 14 ===
+  if (State.age >= 14 && !State.govIdOffered && !State.governmentId) {
+    State.govIdOffered = true;
+    showOptions(
+      "Time for an ID",
+      "I'm old enough to get my first government-issued ID card. Mom says I need it for school trips, opening a bank account, basically everything.",
+      [
+        {
+          label: "Go to the office and get it",
+          run: () => {
+            issueDocument("id");
+            State.stats.smarts = clamp(State.stats.smarts + 1);
+            logEvent("I got my first government ID. It felt official.", "good");
+            showAftermath("Got My ID", "I stood in line for two hours, took a photo I'll regret in a decade, and walked out with a plastic card that says I'm a real person.");
+          }
+        },
+        {
+          label: "Have my parents handle it",
+          run: () => {
+            issueDocument("id");
+            logEvent("My parents took me to get my first government ID.", "normal");
+            showAftermath("Picked Up by Mom", "Mom drove me to the office and did most of the talking. Easy. I got my card in two weeks.");
+          }
+        },
+        {
+          label: "Put it off — I don't need it yet",
+          run: () => {
+            State.stats.smarts = clamp(State.stats.smarts - 1);
+            logEvent("I skipped getting my ID — figured I'd deal with it later.", "bad");
+            showAftermath("Skipped It", "I told mom I'd do it later. She gave me The Look but didn't push.");
+          }
+        },
+      ]
+    );
+    return; // one event per year
+  }
+
+  // === Passport at 14 ===
+  if (State.age >= 14 && !State.passportOffered && !State.passport) {
+    State.passportOffered = true;
+    showOptions(
+      "Get a Passport?",
+      "I should think about getting a passport. Even if I'm not traveling soon, having one ready opens doors later.",
+      [
+        {
+          label: "Apply for one now",
+          run: () => {
+            if (debit(130)) {
+              issueDocument("passport");
+              State.stats.smarts = clamp(State.stats.smarts + 1);
+              logEvent("I got my first passport. The world feels bigger.", "good");
+              showAftermath("Passport in Hand", "Six weeks later a small blue book arrived in the mail. I flipped through the empty pages and started dreaming of where the stamps would go.");
+            } else {
+              showAftermath("Can't Afford It", "I checked the fee — $130 — and realized I couldn't cover it right now. I'll try again next year.");
+            }
+          }
+        },
+        {
+          label: "Wait until I actually need one",
+          run: () => {
+            logEvent("I decided to wait on getting a passport.", "normal");
+            showAftermath("Deferred", "I figured I'd get one if a trip ever came up. The form went into a drawer somewhere.");
+          }
+        },
+      ]
+    );
+    return;
+  }
+
+  // === Driver's License at 18 ===
+  if (State.age >= 18 && !State.driverLicenseOffered && !State.driverLicense) {
+    State.driverLicenseOffered = true;
+    showOptions(
+      "Driver's License",
+      "I'm finally old enough for a full driver's license. No more bumming rides from friends.",
+      [
+        {
+          label: "Take the test and get the license",
+          run: () => {
+            // Higher smarts = better chance of passing first try
+            const passChance = 0.5 + (State.stats.smarts / 200);
+            if (Math.random() < passChance) {
+              issueDocument("driverLicense");
+              State.stats.mood = clamp(State.stats.mood + 6);
+              if (!State.memory) State.memory = {};
+              State.memory.licensed_driver = true;
+              logEvent("I passed my driving test and got my license on the first try.", "good");
+              showAftermath("Licensed", "I waited two hours for the laminator, but the photo came out alright. I drove home with the windows down, music up, feeling like an adult for the first time.");
+            } else {
+              State.stats.mood = clamp(State.stats.mood - 4);
+              logEvent("I failed my driving test. I'll have to take it again.", "bad");
+              showAftermath("Failed the Test", "The examiner caught me rolling through a stop sign in the first five minutes. He didn't even bother finishing the rest of the route.");
+              // Reset the offer flag — they can try again next year
+              State.driverLicenseOffered = false;
+            }
+          }
+        },
+        {
+          label: "Take driving lessons first ($300)",
+          run: () => {
+            if (debit(300)) {
+              // Lessons give a big edge
+              issueDocument("driverLicense");
+              State.stats.mood = clamp(State.stats.mood + 5);
+              State.stats.smarts = clamp(State.stats.smarts + 1);
+              if (!State.memory) State.memory = {};
+              State.memory.licensed_driver = true;
+              logEvent("I took proper driving lessons and passed the test cleanly.", "good");
+              showAftermath("Confident Behind the Wheel", "Six weekends of lessons taught me parallel parking, three-point turns, and how to merge without praying. I aced the test.");
+            } else {
+              showAftermath("Can't Afford Lessons", "Lessons cost $300 and I just don't have it right now.");
+              State.driverLicenseOffered = false;
+            }
+          }
+        },
+        {
+          label: "Skip driving — I'll use transit",
+          run: () => {
+            logEvent("I decided not to bother with a driver's license.", "normal");
+            showAftermath("Walking Everywhere", "I told my friends I just wasn't going to drive. Some of them thought it was weird. I liked the walking.");
+          }
+        },
+      ]
+    );
+    return;
+  }
 }
 
 
@@ -2709,6 +3063,9 @@ function advanceYear() {
     State.money += Math.round(net * 0.3);
   }
 
+  // Housing: rent, eviction, age-20 mom-house event, recovery from homeless
+  processHousing();
+
   // Partner drift
   if (State.partner) {
     State.partner.level = clamp(State.partner.level + (Math.random() < 0.5 ? -3 : 2));
@@ -2743,6 +3100,26 @@ function advanceYear() {
 
   // Illness roll preempts other events
   if (Math.random() < 0.03 && rollIllness()) {
+    render();
+    return;
+  }
+
+  // Mandatory licensing events at specific ages (ID at 14, passport at 14,
+  // driver's license at 18). These take priority over the random event roll
+  // so the player can never miss them.
+  const beforeLicensing = {
+    govIdOffered: State.govIdOffered,
+    passportOffered: State.passportOffered,
+    driverLicenseOffered: State.driverLicenseOffered,
+  };
+  triggerLicensingEvents();
+  // If any licensing dialog was just opened, the dialog handles its own
+  // render. Skip the random year event so we don't double up.
+  if (
+    State.govIdOffered !== beforeLicensing.govIdOffered ||
+    State.passportOffered !== beforeLicensing.passportOffered ||
+    State.driverLicenseOffered !== beforeLicensing.driverLicenseOffered
+  ) {
     render();
     return;
   }
@@ -3561,6 +3938,52 @@ function viewFinance() {
       <div class="info-row"><div>Real Estate</div><div class="v">${money(State.investments.realEstate)}</div></div>
       <div class="info-row"><div><strong>Total</strong></div><div class="v"><strong>${money(netWorth())}</strong></div></div>`;
     body.appendChild(sec);
+
+    // === Housing section ===
+    const housing = document.createElement("div");
+    housing.className = "form-section";
+    let housingLabel, housingDetail, housingClass = "";
+    if (State.age < 18 || State.inSchool || State.inCollege) {
+      housingLabel = "Living with family";
+      housingDetail = "No rent yet — enjoy it while it lasts.";
+    } else if (State.housing === "owned") {
+      housingLabel = `Owned: ${State.housingName || "House"}`;
+      housingDetail = `Equity ${money(State.investments.realEstate)}. No rent.`;
+    } else if (State.housing === "rented") {
+      housingLabel = `Renting: ${State.housingName || "Apartment"}`;
+      housingDetail = `Rent ${money(State.rent)}/year.` + (State.rentMissed > 0 ? ` ⚠ You owe last year's rent — pay or you'll be evicted.` : "");
+    } else if (State.housing === "homeless") {
+      housingLabel = `Homeless`;
+      housingDetail = `No address, no roof. Get a job and save up at least ${money(2000)} to find a place again.`;
+      housingClass = "homeless";
+    } else {
+      housingLabel = "Unhoused";
+      housingDetail = "—";
+    }
+    housing.innerHTML = `
+      <h4>Housing ${housingClass === "homeless" ? '<span class="homeless-tag">CRITICAL</span>' : ""}</h4>
+      <div class="info-row"><div>Status</div><div class="v">${housingLabel}</div></div>
+      <div class="info-row"><div>Details</div><div class="v">${housingDetail}</div></div>`;
+    body.appendChild(housing);
+
+    // Manual rent-pay button if renting and behind
+    if (State.housing === "rented" && State.rentMissed > 0) {
+      const fixBtn = document.createElement("button");
+      fixBtn.className = "success";
+      fixBtn.style.cssText = "width:100%;margin-top:8px;";
+      fixBtn.textContent = `Pay overdue rent (${money(State.rent)})`;
+      fixBtn.onclick = () => {
+        if (debit(State.rent)) {
+          State.rentMissed = 0;
+          logEvent("I caught up on my overdue rent.", "good");
+          viewFinance();
+        } else {
+          showAftermath("Can't Afford", `You don't have ${money(State.rent)} between cash and bank.`);
+        }
+      };
+      housing.appendChild(fixBtn);
+    }
+
     const acts = document.createElement("div");
     acts.className = "form-section";
     acts.innerHTML = `
@@ -4520,7 +4943,7 @@ function viewMenu() {
     }
 
     // === Send Feedback ===
-    const FEEDBACK_EMAIL = "stavrosandres4@gmail.com"; // CHANGE this to your real email
+    const FEEDBACK_EMAIL = "stavroselpro@gmail.com"; // CHANGE this to your real email
     const secFb = document.createElement("div");
     secFb.className = "form-section";
     secFb.innerHTML = `<h4>📨 Send Feedback</h4>
