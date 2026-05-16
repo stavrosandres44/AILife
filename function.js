@@ -582,7 +582,7 @@ const DLG = {
 let aftermathHandler = null;
 
 function closeDialog() {
-  DLG.overlay.classList.remove("show", "aftermath");
+  DLG.overlay.classList.remove("show", "aftermath", "warning");
   DLG.hint.style.display = "none";
   if (aftermathHandler) {
     DLG.overlay.removeEventListener("click", aftermathHandler);
@@ -2590,8 +2590,17 @@ function microEventChance(unitMins) {
 
 function advanceTime() {
   if (!State.alive) return;
+  // Block age-advances while a dialog is open, the AI is thinking, or a
+  // subview is active. Clicking the age button under those conditions
+  // would otherwise either be ignored silently (leaving the button looking
+  // unresponsive) OR — worse — skip an age while the player was still
+  // mid-decision. We render() afterward so the button visibly re-enables.
+  if (DLG.overlay.classList.contains("show")) return;
+  if (document.getElementById("aiThinkingToast")) return;
+  if (SUBVIEW && SUBVIEW.el && SUBVIEW.el.classList.contains("show")) return;
+
   // Non-realistic: original year-at-a-time behavior.
-  if (!State.realisticMode) { advanceYear(); return; }
+  if (!State.realisticMode) { advanceYear(); saveGame(); return; }
 
   const unit = REALISTIC_UNITS[State.realisticUnit] || REALISTIC_UNITS.day;
   State._subYearMinutes = (State._subYearMinutes || 0) + unit.mins;
@@ -3166,97 +3175,170 @@ function viewSchool() {
 function buildSchoolActions(isCollege) {
   const acts = [];
 
-  // Study hard — raises smarts, costs mood
+  // Helper: pick a random element
+  const r = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  // === Study hard ===
   acts.push({
     label: isCollege ? "Study hard for finals" : "Study hard",
-    desc: "Books over fun. Smarts up, mood down.",
+    desc: isCollege
+      ? "Camp out in the library. Coffee, flashcards, lost weekends."
+      : "Spread your homework across the kitchen table and grind through it.",
     run: () => {
       const smartsGain = isCollege ? 4 : 3;
       State.stats.smarts = clamp(State.stats.smarts + smartsGain);
       State.stats.mood   = clamp(State.stats.mood - 2);
-      logEvent(isCollege ? "I hit the books hard." : "I studied for hours.", "good");
-      showAftermath("Studied", `Smarts +${smartsGain}, Mood −2.`);
+      const scenes = isCollege ? [
+        { t: "Library All-Day", b: "I camped in the library from open to close. By the time I left, the formulas finally clicked." },
+        { t: "Caffeine and Notes", b: "Three coffees deep, I rewrote every lecture note from scratch. The act of writing it out is what made it stick." },
+        { t: "Study Group", b: "I joined a study group in the dorm lounge. Explaining the material to someone else taught me more than reading it ever did." },
+        { t: "Practice Problems", b: "I worked through every problem at the back of the textbook. Tedious — but I felt it in my bones by the end." },
+      ] : [
+        { t: "Kitchen Table Study", b: "I spread my homework across the kitchen table and worked through it while dinner cooked. Mom kept refilling my juice." },
+        { t: "Library After School", b: "I stayed at the school library until the librarian started turning off the lights. Got through everything." },
+        { t: "Quiet Bedroom Hours", b: "I closed my door, put on a playlist, and ground through every problem. Surprised myself with how much I knew." },
+        { t: "Studying With a Friend", b: "A classmate came over and we quizzed each other for hours. We aced the test the next day." },
+      ];
+      const s = r(scenes);
+      logEvent(s.b, "good");
+      showAftermath(s.t, s.b);
     },
   });
 
-  // Make friends with classmates
+  // === Hang out with classmates ===
   acts.push({
     label: "Hang out with classmates",
-    desc: "Make a new friend. Maybe.",
+    desc: "See who clicks.",
     run: () => {
       if (Math.random() < 0.7) {
         const name = pick(GAME.constants.firstNamesM.concat(GAME.constants.firstNamesF));
         const gender = Math.random() < 0.5 ? "M" : "F";
         State.friends.push({ name, gender, age: State.age, level: 70 });
         State.stats.mood = clamp(State.stats.mood + 5);
-        logEvent(`I made friends with ${name}.`, "good");
-        showAftermath("New Friend", `${name} and I clicked. Mood +5.`);
+        const scenes = [
+          { t: "Cafeteria Connection", b: `${name} sat next to me at lunch. We bonded over our shared hatred of the cafeteria pizza and ended up walking home together.` },
+          { t: "After-School Hangout", b: `${name} invited me to their place after school. We spent three hours just talking — felt like I'd known them forever.` },
+          { t: "Shared Inside Joke", b: `Something silly happened in class and ${name} caught my eye laughing. We've been texting ever since.` },
+          { t: "Group Project Win", b: `I got partnered with ${name} on a project. Turns out we work great together — and they're hilarious off-task.` },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "good");
+        showAftermath(s.t, s.b);
       } else {
         State.stats.mood = clamp(State.stats.mood + 1);
-        logEvent("I tried to make friends. Nothing clicked.", "normal");
-        showAftermath("Awkward", "Nice people, no spark. Mood +1.");
+        const scenes = [
+          { t: "Awkward Lunch", b: "I tried to join a table but the conversation kept skipping over me. I gave up and ate alone." },
+          { t: "No Spark", b: "Everyone seemed nice enough, but nobody felt like a real friend. Maybe next week." },
+          { t: "Surface-Level", b: "We chatted about nothing for fifteen minutes and then everyone scattered. Polite, but empty." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "normal");
+        showAftermath(s.t, s.b);
       }
     },
   });
 
-  // Join a club / sport
+  // === Join a club ===
   acts.push({
     label: isCollege ? "Join a campus club" : "Join an after-school club",
-    desc: "Find your people. Boost mood and smarts.",
+    desc: "Find your people.",
     run: () => {
       const clubs = isCollege
-        ? ["Debate Society", "Robotics Club", "Theater Group", "Student Government", "Astronomy Club", "Volunteer Corps"]
-        : ["Chess Club", "Drama Club", "Science Fair Team", "Soccer Team", "Math League", "Band"];
-      const club = pick(clubs);
+        ? ["Debate Society", "Robotics Club", "Theater Group", "Student Government", "Astronomy Club", "Volunteer Corps", "Film Society", "Chess Club"]
+        : ["Chess Club", "Drama Club", "Science Fair Team", "Soccer Team", "Math League", "Band", "Yearbook Committee", "Art Club"];
+      const club = r(clubs);
       State.stats.mood   = clamp(State.stats.mood + 4);
       State.stats.smarts = clamp(State.stats.smarts + 2);
-      logEvent(`I joined the ${club}.`, "good");
       if (!State.memory) State.memory = {};
       State.memory.joined_club = true;
-      showAftermath(club, `I signed up. Mood +4, Smarts +2.`);
+      const scenes = [
+        { t: `Joined the ${club}`, b: `My first meeting at the ${club} was packed. By the end of the night I'd signed up for the upcoming event and made plans with two new people.` },
+        { t: `New in the ${club}`, b: `I walked into the ${club} not knowing anyone. By the time I left I had a nickname and three new contacts in my phone.` },
+        { t: `Found My People`, b: `The ${club} is full of weirdos in the best possible way. I finally feel like I fit in somewhere.` },
+        { t: `${club} Veteran`, b: `I joined the ${club} planning to "try it once." Three weeks later I'm running the supply closet.` },
+      ];
+      const s = r(scenes);
+      logEvent(s.b, "good");
+      showAftermath(s.t, s.b);
     },
   });
 
-  // Interact with a specific teacher
+  // === Teacher / professor interaction ===
   acts.push({
     label: isCollege ? "Visit a professor's office hours" : "Talk to a teacher after class",
-    desc: "Build a real relationship with an educator.",
+    desc: "Build a real connection with an educator.",
     run: () => {
+      const lastName = pick(GAME.constants.lastNames);
+      const title = isCollege ? "Professor" : (Math.random() < 0.5 ? "Mr." : "Ms.");
+      const teacher = `${title} ${lastName}`;
       const roll = Math.random();
       if (roll < 0.5) {
         State.stats.smarts = clamp(State.stats.smarts + 3);
         State.stats.mood   = clamp(State.stats.mood + 3);
-        logEvent(isCollege ? "My professor became a real mentor." : "My teacher took a real interest in me.", "good");
         if (!State.memory) State.memory = {};
         State.memory.had_mentor = true;
-        showAftermath("Mentor", "Smarts +3, Mood +3.");
+        const scenes = [
+          { t: `${teacher} Took an Interest`, b: `${teacher} asked about my plans after class. We ended up talking for an hour about books and life. Felt like the first adult who actually listened.` },
+          { t: `Mentor Moment`, b: `${teacher} gave me a book I had to read. Said it reminded them of me. I haven't put it down.` },
+          { t: `Real Conversation`, b: `${teacher} stayed late to walk me through a concept. By the end, we weren't even talking about the material anymore — they were giving me real life advice.` },
+          { t: `Recommendation Letter`, b: `${teacher} offered out of the blue to write me a recommendation letter "whenever I need one." I almost cried in the hallway.` },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "good");
+        showAftermath(s.t, s.b);
       } else {
         State.stats.smarts = clamp(State.stats.smarts + 1);
-        logEvent("I asked some good questions. Learned a bit.", "normal");
-        showAftermath("Productive Chat", "Smarts +1.");
+        const scenes = [
+          { t: `Productive Chat`, b: `${teacher} answered my questions and I left the room knowing the material cold. Not life-changing, but useful.` },
+          { t: `Quick Q&A`, b: `${teacher} clarified the part I was stuck on. Five minutes, totally worth it.` },
+          { t: `Polite Visit`, b: `${teacher} was friendly but busy. I got what I needed and left.` },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "normal");
+        showAftermath(s.t, s.b);
       }
     },
   });
 
-  // Skip class — risky
+  // === Skip class ===
   acts.push({
     label: isCollege ? "Skip lecture" : "Skip class",
-    desc: "Risky. Mood up, smarts down. Might get caught.",
+    desc: "Risky.",
     run: () => {
       State.stats.mood   = clamp(State.stats.mood + 4);
       State.stats.smarts = clamp(State.stats.smarts - 2);
       if (Math.random() < 0.3) {
-        logEvent("I got caught skipping. Detention.", "bad");
         State.stats.mood = clamp(State.stats.mood - 6);
-        showAftermath("Caught!", "Mood +4 then −6, Smarts −2.");
+        const scenes = isCollege ? [
+          { t: "Got Marked Absent", b: "The professor takes attendance, apparently. I got an email about my participation grade tanking." },
+          { t: "Ran Into the Professor", b: "I ducked into a coffee shop and the professor walked in five minutes later. They saw me. Painfully awkward." },
+          { t: "Quiz I Didn't Know About", b: "Turns out there was a pop quiz I missed. It was worth 10% of the grade." },
+        ] : [
+          { t: "Caught at the Mall", b: "Vice principal walked into the food court while I was sitting there. He didn't even need to say anything." },
+          { t: "Detention", b: "Someone snitched. I got a week of detention and my parents got a phone call I'll never live down." },
+          { t: "Mom Showed Up", b: "Somehow mom found out within an hour. I don't even want to know how. I'm grounded for two weeks." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "bad");
+        showAftermath(s.t, s.b);
       } else {
-        logEvent("I skipped and got away with it.", "normal");
-        showAftermath("Skipped", "Mood +4, Smarts −2.");
+        const scenes = isCollege ? [
+          { t: "Park Afternoon", b: "I sat in the park and read a book for two hours. Felt like a stolen pocket of life." },
+          { t: "Movie Alone", b: "Caught a matinee at the empty theater. Best $8 I spent all month." },
+          { t: "Just Slept", b: "Went back to bed for four hours. Woke up actually rested for the first time in weeks." },
+        ] : [
+          { t: "Walked Home", b: "Took the long way home and stopped at the library. Read a whole graphic novel before mom got off work." },
+          { t: "Friend's Basement", b: "A friend skipped too. We played video games and ate stale chips. Heaven." },
+          { t: "Bookstore Hours", b: "Spent the afternoon in the local bookstore. Nobody asked questions. Nobody knew." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "normal");
+        showAftermath(s.t, s.b);
       }
     },
   });
 
-  // College-only: choose/change major, ask for scholarship
+  // College-only
   if (isCollege) {
     acts.push({
       label: State.collegeMajor ? "Change major" : "Declare a major",
@@ -3275,72 +3357,117 @@ function buildSchoolActions(isCollege) {
         if (Math.random() < State.stats.smarts / 100) {
           const amount = 5000 + Math.floor(Math.random() * 15000);
           State.money += amount;
-          logEvent(`I won a scholarship worth ${money(amount)}.`, "good");
           if (!State.memory) State.memory = {};
           State.memory.scholarship = true;
-          showAftermath("Awarded!", `${money(amount)} added to my account.`);
+          const scenes = [
+            { t: "Scholarship Awarded", b: `The financial aid office called my name at the awards ceremony. ${money(amount)} toward this year's tuition. My parents cried.` },
+            { t: "The Letter Arrived", b: `A letter from the foundation sat on my desk for a week before I opened it. I was awarded ${money(amount)}.` },
+            { t: "Essay Won It", b: `My essay was the deciding factor, they said. ${money(amount)} in my account by the end of the week.` },
+          ];
+          const s = r(scenes);
+          logEvent(s.b, "good");
+          showAftermath(s.t, s.b);
         } else {
-          logEvent("My scholarship application was denied.", "bad");
-          showAftermath("Denied", "Maybe next semester.");
+          const scenes = [
+            { t: "Application Denied", b: "The rejection email was short and clinical. They said the competition was fierce. I tried not to take it personally." },
+            { t: "Waitlisted, Then Cut", b: "I was waitlisted for two weeks. The final email was a 'no.' I stared at it for an hour." },
+            { t: "Not This Year", b: "My application didn't make it past the first round. Back to the drawing board." },
+          ];
+          const s = r(scenes);
+          logEvent(s.b, "bad");
+          showAftermath(s.t, s.b);
         }
       },
     });
     acts.push({
       label: "Pull an all-nighter",
-      desc: "Cram everything. Big smarts, big health hit.",
+      desc: "Cram everything.",
       run: () => {
         State.stats.smarts = clamp(State.stats.smarts + 5);
         State.stats.health = clamp(State.stats.health - 4);
         State.stats.mood   = clamp(State.stats.mood - 3);
-        logEvent("I pulled an all-nighter studying.", "normal");
-        showAftermath("All-Nighter", "Smarts +5, Health −4, Mood −3.");
+        const scenes = [
+          { t: "Sunrise Studying", b: "I watched the sun come up through the library window with three energy drinks in me. Took the final at 9am and remembered every formula." },
+          { t: "Dorm Room Blur", b: "I locked myself in my dorm room with a stack of notes and didn't leave until I'd memorized everything. Felt like death the next day." },
+          { t: "24/7 Diner", b: "I camped at the 24-hour diner and reread every chapter twice. The waitress kept refilling my coffee without me asking." },
+          { t: "All-Nighter Hangover", b: "Pulled it off, but I felt like I'd been hit by a truck for two days after. Worth it for the grade, maybe." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "normal");
+        showAftermath(s.t, s.b);
       },
     });
   } else {
-    // School-only: try out for a sport, run for class president
+    // School-only
     acts.push({
       label: "Try out for a sport",
-      desc: "Make the team and boost health and confidence.",
+      desc: "Make the team.",
       locked: State.age < 8,
       run: () => {
+        const sports = ["soccer", "basketball", "baseball", "swimming", "track", "volleyball"];
+        const sport = r(sports);
         if (Math.random() < 0.55) {
           State.stats.health = clamp(State.stats.health + 4);
           State.stats.looks  = clamp(State.stats.looks + 2);
           State.stats.mood   = clamp(State.stats.mood + 4);
-          logEvent("I made the team!", "good");
           if (!State.memory) State.memory = {};
           State.memory.team_athlete = true;
-          showAftermath("Made the Team!", "Health +4, Looks +2, Mood +4.");
+          const scenes = [
+            { t: `Made the ${sport} Team`, b: `Coach pulled me aside after tryouts and told me I'd made the ${sport} team. I called mom from the locker room.` },
+            { t: `Starting Lineup`, b: `Not only did I make the ${sport} team — coach said I'd be starting in next week's game.` },
+            { t: `Roster Confirmed`, b: `My name was on the ${sport} roster posted in the gym. I read it three times to make sure.` },
+          ];
+          const s = r(scenes);
+          logEvent(s.b, "good");
+          showAftermath(s.t, s.b);
         } else {
           State.stats.mood = clamp(State.stats.mood - 3);
-          logEvent("I didn't make the team. Maybe next year.", "bad");
-          showAftermath("Cut", "Mood −3.");
+          const scenes = [
+            { t: `Cut from ${sport}`, b: `The list went up and my name wasn't on it. I checked twice. Coach said to try again next year.` },
+            { t: `Didn't Make It`, b: `Coach was kind about it, but the answer was no. I biked home the long way and cried in the garage.` },
+            { t: `Last Cut`, b: `I made it past three rounds of tryouts and then got cut on the final day. Brutal.` },
+          ];
+          const s = r(scenes);
+          logEvent(s.b, "bad");
+          showAftermath(s.t, s.b);
         }
       },
     });
     acts.push({
       label: "Run for class president",
-      desc: "High risk, high reward.",
+      desc: "Campaign for it.",
       locked: State.age < 10,
       run: () => {
         const winChance = (State.stats.looks + State.stats.smarts) / 250;
         if (Math.random() < winChance) {
           State.stats.mood   = clamp(State.stats.mood + 8);
           State.stats.smarts = clamp(State.stats.smarts + 2);
-          logEvent("I was elected class president!", "good");
           if (!State.memory) State.memory = {};
           State.memory.class_president = true;
-          showAftermath("Elected!", "Mood +8, Smarts +2.");
+          const scenes = [
+            { t: "Elected!", b: "When the principal announced my name over the PA, the whole class cheered. I'll never forget the walk to the office to accept." },
+            { t: "Landslide Victory", b: "I won by a wide margin. My speech apparently landed. Now I have to actually do the job." },
+            { t: "Close Race, Big Win", b: "It came down to a few votes. My opponent shook my hand and meant it. Now I'm president." },
+          ];
+          const s = r(scenes);
+          logEvent(s.b, "good");
+          showAftermath(s.t, s.b);
         } else {
           State.stats.mood = clamp(State.stats.mood - 5);
-          logEvent("I lost the election.", "bad");
-          showAftermath("Defeated", "Mood −5.");
+          const scenes = [
+            { t: "Lost the Election", b: "I gave it my all. The other candidate won by 30 votes. I clapped for them and went home to lie on my floor." },
+            { t: "Defeated Gracefully", b: "I lost. I shook the winner's hand and tried to mean it. It took me a week to laugh again." },
+            { t: "Not This Time", b: "My platform didn't land. The student body went a different direction. I'll learn from it." },
+          ];
+          const s = r(scenes);
+          logEvent(s.b, "bad");
+          showAftermath(s.t, s.b);
         }
       },
     });
   }
 
-  // Bully someone / stand up to a bully
+  // === Stand up to a bully ===
   acts.push({
     label: "Stand up to a bully",
     desc: "Risky but right.",
@@ -3348,40 +3475,72 @@ function buildSchoolActions(isCollege) {
       const roll = Math.random();
       if (roll < 0.5) {
         State.stats.mood = clamp(State.stats.mood + 6);
-        logEvent("I stood up to a bully. People noticed.", "good");
         if (!State.memory) State.memory = {};
         State.memory.brave = true;
-        showAftermath("Hero Moment", "Mood +6.");
+        const scenes = [
+          { t: "The Bully Backed Down", b: "I called them out in front of everyone. They tried to laugh it off, but the room went silent on their side. They've left me alone since." },
+          { t: "A Crowd Formed", b: "I stepped between them and the kid they were picking on. People stopped. They stammered and walked away. I'm somebody now." },
+          { t: "Stood My Ground", b: "I looked them dead in the eye and didn't flinch. They didn't expect it. The next day they pretended I didn't exist — which was perfect." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "good");
+        showAftermath(s.t, s.b);
       } else if (roll < 0.85) {
         State.stats.health = clamp(State.stats.health - 3);
         State.stats.mood   = clamp(State.stats.mood + 2);
-        logEvent("I confronted a bully. Got pushed around but stood my ground.", "normal");
-        showAftermath("Held My Ground", "Health −3, Mood +2.");
+        const scenes = [
+          { t: "Shoving Match", b: "It turned physical fast. I caught an elbow to the ribs but didn't back down. Both of us got hauled to the office." },
+          { t: "Got Pushed Around", b: "They shoved me against a locker. I got back up and kept talking. Earned a bruise and a reputation." },
+          { t: "Took a Hit", b: "They threw a punch. It connected. But I didn't run, and that meant more than the hit hurt." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "normal");
+        showAftermath(s.t, s.b);
       } else {
         State.stats.health = clamp(State.stats.health - 6);
         State.stats.mood   = clamp(State.stats.mood - 4);
-        logEvent("The bully won this round.", "bad");
-        showAftermath("Beaten", "Health −6, Mood −4.");
+        const scenes = [
+          { t: "Outmatched", b: "I miscalculated. They had backup. I ended up on the ground with my friends pulling them off me. Black eye for a week." },
+          { t: "Beaten Down", b: "It was three on one. I held up for about ten seconds before it went sideways. The nurse called my parents." },
+          { t: "Wrong Day to Try", b: "I picked the wrong moment. Got my nose bloodied and my pride bruised worse. Sat in the bathroom until last bell." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "bad");
+        showAftermath(s.t, s.b);
       }
     },
   });
 
-  // Cheat on a test
+  // === Cheat on a test ===
   acts.push({
     label: "Cheat on a test",
-    desc: "Quick smarts boost. Risk of getting caught.",
+    desc: "Risk of getting caught.",
     run: () => {
       if (Math.random() < 0.3) {
         State.stats.smarts = clamp(State.stats.smarts - 5);
         State.stats.mood   = clamp(State.stats.mood - 8);
-        logEvent("I got caught cheating. Major consequences.", "bad");
         if (!State.memory) State.memory = {};
         State.memory.caught_cheating = true;
-        showAftermath("Caught Cheating", "Smarts −5, Mood −8.");
+        const scenes = isCollege ? [
+          { t: "Academic Dishonesty Hearing", b: "The professor caught me checking notes mid-exam. I'm in front of an academic integrity board next week. My GPA, my major, all of it on the line." },
+          { t: "Zero on the Final", b: "I got pulled aside immediately. Automatic zero on the exam, and a permanent note in my file. The professor wouldn't even look at me." },
+        ] : [
+          { t: "Caught in the Act", b: "The teacher saw the notes on my wrist. They didn't even raise their voice — just collected my paper and walked me to the principal's office. Parents got called." },
+          { t: "Suspended", b: "I got two days suspension and a zero on the test. Mom and Dad are devastated. I'd rather have just studied." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "bad");
+        showAftermath(s.t, s.b);
       } else {
         State.stats.smarts = clamp(State.stats.smarts + 2);
-        logEvent("I cheated and got away with it.", "normal");
-        showAftermath("Got Away With It", "Smarts +2 (on paper).");
+        const scenes = [
+          { t: "Got Away With It", b: "Slipped the notes back into my bag without anyone noticing. Aced the test. Hollow feeling in my chest for the rest of the week." },
+          { t: "Crib Sheet Worked", b: "Had every formula on a folded paper in my shoe. Got an A. Felt like a fraud at the grade-back." },
+          { t: "Whispered Answers", b: "My friend and I had a system. Both of us aced it. Neither of us could look the teacher in the eye after." },
+        ];
+        const s = r(scenes);
+        logEvent(s.b, "normal");
+        showAftermath(s.t, s.b);
       }
     },
   });
@@ -4188,6 +4347,20 @@ function viewMenu() {
       localStorage.setItem("bitlife_ai_provider", State.aiProvider);
       showAftermath("Saved","AI settings saved.");
     };
+    // Auto-persist provider as soon as the user switches it (so settings
+    // survive even if the user forgets to click Save).
+    sec2.querySelector("#aiProvider").onchange = (e) => {
+      State.aiProvider = e.target.value;
+      localStorage.setItem("bitlife_ai_provider", e.target.value);
+    };
+    sec2.querySelector("#aiModel").oninput = (e) => {
+      State.aiModel = e.target.value.trim();
+      localStorage.setItem("bitlife_ai_model", State.aiModel);
+    };
+    sec2.querySelector("#aiKey").oninput = (e) => {
+      State.apiKey = e.target.value.trim();
+      localStorage.setItem("bitlife_api_key", State.apiKey);
+    };
     sec2.querySelector("#clearAI").onclick = () => {
       State.apiKey = ""; State.aiModel = ""; State.aiProvider = "anthropic";
       localStorage.removeItem("bitlife_api_key");
@@ -4424,8 +4597,47 @@ function stateSummaryForAI() {
 
 async function callAI(userAct, contextLabel, customSystem) {
   const baseSchema = `Respond with STRICT JSON only (no markdown). Schema:
-{"title":"<optional>","body":"<optional>","narration":"<first-person past-tense, 1-2 sentences>","logKind":"good"|"bad"|"normal"|"ai","stats":{"mood":<-15..15>,"health":<-15..15>,"smarts":<-15..15>,"looks":<-15..15>},"money":<integer; can be negative>,"addBadge":{"id":"<snake_case>","name":"<short>","icon":"<lucide icon name>","desc":"<short>"},"options":[{"label":"<short>","narration":"<result>","stats":{...},"money":<int>,"tone":"good|bad|normal"}]}
-All fields are optional EXCEPT narration (or options if you provide a follow-up choice). Use options[] for follow-up choices; otherwise omit it. addBadge ONLY for major milestones — leave it out for normal events. Stats are DELTAS, not totals. Be concise.`;
+{
+  "title":     "<optional dialog title — use a SPECIFIC scene title, not 'Life Event'>",
+  "category":  "<one-word theme: family, work, romance, tragedy, windfall, health, social, achievement, crime, hobby, travel, etc.>",
+  "body":      "<optional dialog body when offering options>",
+  "narration": "<first-person past-tense, 1-3 sentences, what happened>",
+  "logKind":   "good" | "bad" | "normal" | "ai",
+  "stats":     {"mood": <-20..20>, "health": <-20..20>, "smarts": <-20..20>, "looks": <-20..20>},
+  "money":     <integer; can be negative>,
+  "aftermath": "<optional — the closing beat shown after the player dismisses the event. Write 1-2 sentences in present-tense reflection. ALWAYS include this if no options[] are present.>",
+  "addBadge":  {"id":"<snake_case>", "name":"<short>", "icon":"<lucide icon name>", "desc":"<short>"},
+  "special":   "<optional story hook — see list below>",
+  "options":   [{"label":"<short>", "narration":"<result>", "stats":{...}, "money":<int>, "tone":"good|bad|normal", "special":"<hook>", "aftermath":"<closing beat>"}]
+}
+
+Rules:
+- ALL fields are optional EXCEPT narration (or options[] if offering choices).
+- ALWAYS include "category" — never use the word "Life" as the category.
+- ALWAYS include "aftermath" when there are no options, so the player gets a clear closing moment.
+- Stats are DELTAS, not totals.
+- addBadge ONLY for major milestones (first kiss, graduated, became rich, near-death).
+- Be concise. Don't repeat narration in aftermath — let aftermath add reflection.
+
+Story hooks (use these in "special" to drive real game state, not just narration):
+- "newPartner"       — start a new romantic relationship
+- "divorce"          — end a marriage / breakup
+- "engaged"          — get engaged
+- "addChild" / "newChild"  — have/adopt a child
+- "addFriend"        — gain a new friend
+- "newSibling"       — gain a new sibling
+- "addPet:dog" / "addPet:cat" — gain a pet
+- "addiction_alcohol" / "addiction_drugs" / "addiction_smoking" / "vapeStart" — develop an addiction
+- "raise_small" / "raise_medium" / "raise_big" — pay raise
+- "demoted"          — demotion
+- "job_offer"        — get a job offer
+- "needTherapy"      — flag needing therapy
+- "cheated_partner"  — partner cheated
+- "die_now"          — player dies (use sparingly, only for clearly fatal events)
+- "illness_alzheimers" — develop Alzheimer's
+- "badge_<id>"       — grant a specific preset badge
+
+You may invent dramatic events: a family member dying, an accident, a windfall, a betrayal, a reunion. Use specials to make these events have real consequences in the game state — not just narration.`;
 
   const sys = customSystem || `You narrate a life simulator. Context tag: ${contextLabel}.
 ${stateSummaryForAI()}
@@ -4519,6 +4731,80 @@ function parseAIResult(text) {
   try { return JSON.parse(s.slice(first, last + 1)); } catch { return null; }
 }
 
+/* ============ AI: Thinking Toast + Warning Dialog ============ */
+// Persistent "Thinking..." toast at the bottom of the screen while an AI call
+// is in flight. White background, square corners, drop shadow, loading ring.
+function showThinkingToast(label) {
+  hideThinkingToast(); // ensure only one
+  const toast = document.createElement("div");
+  toast.id = "aiThinkingToast";
+  toast.className = "ai-thinking-toast";
+  toast.innerHTML = `
+    <div class="ai-thinking-ring"></div>
+    <div class="ai-thinking-label">${escapeHtml(label || "Thinking")}</div>`;
+  document.body.appendChild(toast);
+}
+function hideThinkingToast() {
+  const el = document.getElementById("aiThinkingToast");
+  if (el) el.remove();
+}
+
+// Red-banner warning dialog used when the AI fails or returns garbage.
+// Usage: showWarningDialog("Generation Failure", "Couldn't reach the model — request timed out.");
+function showWarningDialog(title, description) {
+  DLG.header.textContent = title || "Warning";
+  DLG.body.innerHTML = "";
+  DLG.hint.style.display = "none";
+
+  // Tag the overlay so CSS paints the header red
+  DLG.overlay.classList.add("warning");
+
+  const banner = document.createElement("div");
+  banner.className = "warning-icon-banner";
+  banner.innerHTML = `<i data-lucide="alert-triangle"></i>`;
+  DLG.body.appendChild(banner);
+
+  const msg = document.createElement("div");
+  msg.className = "warning-msg";
+  msg.textContent = description || "Something went wrong.";
+  DLG.body.appendChild(msg);
+
+  const btn = document.createElement("button");
+  btn.className = "warning-dismiss-btn";
+  btn.textContent = "OK";
+  btn.onclick = () => {
+    DLG.overlay.classList.remove("warning");
+    closeDialog();
+  };
+  DLG.body.appendChild(btn);
+
+  DLG.overlay.classList.add("show", "aftermath");
+  if (window.lucide) lucide.createIcons();
+}
+
+// Pick one of several warning titles based on the failure type.
+function aiWarningTitle(kind) {
+  switch (kind) {
+    case "parse":    return "Invalid Response";
+    case "network":  return "Generation Failure";
+    case "auth":     return "Authentication Failed";
+    case "rate":     return "Rate Limit Exceeded";
+    case "timeout":  return "Generation Timeout";
+    case "empty":    return "Empty Response";
+    default:         return "Generation Failure";
+  }
+}
+
+// Classify an error string into a kind for the title.
+function classifyAIError(err) {
+  const m = (err && err.message ? err.message : String(err || "")).toLowerCase();
+  if (m.includes("rate") || m.includes("429") || m.includes("quota")) return "rate";
+  if (m.includes("401") || m.includes("403") || m.includes("auth") || m.includes("api key")) return "auth";
+  if (m.includes("timeout") || m.includes("timed out")) return "timeout";
+  if (m.includes("network") || m.includes("fetch") || m.includes("failed to fetch")) return "network";
+  return "network";
+}
+
 // Apply a single AI "outcome" — narration + stats + money + optional badge.
 // Returns true if a follow-up dialog (options or badge) was opened.
 function applyAIOutcome(parsed) {
@@ -4547,15 +4833,44 @@ function applyAIOutcome(parsed) {
       return true;
     }
   }
+
+  // Special story hooks the AI can invoke. The AI is encouraged to use these
+  // so it can drive real game state changes (a family member dying, partner
+  // breakups, new children, new jobs, etc.).
+  if (parsed.special) handleOutcomeSpecial(parsed.special);
+
   return false;
+}
+
+// Build a fallback title from a category/theme if the AI didn't give one.
+function aiTitleFor(parsed, fallbackTitle) {
+  // Prefer explicit title from the AI
+  if (parsed.title) return parsed.title;
+  // Then a category/theme key
+  if (parsed.category) return titleCase(parsed.category);
+  if (parsed.theme)    return titleCase(parsed.theme);
+  // Then infer from the contextLabel-style fallback (avoid generic "Life Event")
+  if (fallbackTitle && fallbackTitle !== "Life Event") return fallbackTitle;
+  // Last resort — try to extract a noun phrase from the narration
+  if (parsed.narration) {
+    const first = parsed.narration.split(/[.!?]/)[0].trim();
+    if (first.length <= 60) return titleCase(first);
+  }
+  return "A Moment";
+}
+
+function titleCase(s) {
+  return String(s).replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
 // Decide what to show after an AI response
 function presentAIResult(parsed, fallbackTitle) {
   if (!parsed) {
-    showAftermath("AI Glitch", "The AI returned something I couldn't parse.");
+    showWarningDialog(aiWarningTitle("parse"), "The AI returned a response I couldn't parse as JSON. The model may be misconfigured or overloaded — try again or switch model.");
     return;
   }
+
+  const title = aiTitleFor(parsed, fallbackTitle);
 
   // If the AI proposed follow-up options, show them as a new dialog
   if (Array.isArray(parsed.options) && parsed.options.length > 0) {
@@ -4563,6 +4878,7 @@ function presentAIResult(parsed, fallbackTitle) {
     if (parsed.narration) logEvent(parsed.narration, parsed.logKind || "ai");
     if (parsed.stats) applyStats(parsed.stats);
     if (parsed.money != null) applyStats({ money: parsed.money });
+    if (parsed.special) handleOutcomeSpecial(parsed.special);
 
     const choices = parsed.options.map(o => ({
       label: o.label || "...",
@@ -4574,22 +4890,29 @@ function presentAIResult(parsed, fallbackTitle) {
           stats: o.stats,
           money: o.money,
           addBadge: o.addBadge,
+          special: o.special,
         });
-        // Only show aftermath if the AI explicitly asked for one
-        if (!opened && o.aftermath) showAftermath(o.aftermathTitle || "Aftermath", o.aftermath);
+        // Show an aftermath after each AI-driven choice so the player gets
+        // a clear closing beat. Prefer an explicit aftermath from the AI;
+        // otherwise synthesize one from the narration.
+        if (opened) return;
+        const aftermath = o.aftermath || o.narration;
+        if (aftermath) showAftermath(o.aftermathTitle || title, aftermath);
       },
     }));
-    showOptions(parsed.title || fallbackTitle || "Decision", parsed.body || parsed.narration || "What do I do?", choices);
+    showOptions(title, parsed.body || parsed.narration || "What do I do?", choices);
     return;
   }
 
-  // No follow-up — apply directly. Show aftermath only when the AI clearly intends a moment
+  // No follow-up — apply directly, then ALWAYS show an aftermath so the
+  // player has a clear moment for the event (the AI can supply one, or
+  // we fall back to the narration as the aftermath body).
   const opened = applyAIOutcome(parsed);
   if (opened) return;
-  if (parsed.aftermath) {
-    showAftermath(parsed.title || fallbackTitle || "AI", parsed.aftermath);
-  } else {
-    // Silent log — aftermath only when necessary (bitlife-style)
+
+  const aftermath = parsed.aftermath || parsed.narration;
+  if (aftermath) {
+    showAftermath(title, aftermath);
   }
 }
 
@@ -4617,18 +4940,22 @@ function askAICustomAction(prompt, contextLabel) {
   btn.onclick = async () => {
     const action = ta.value.trim();
     if (!action) return;
-    btn.disabled = true;
-    btn.innerHTML = `<i data-lucide="loader-2"></i><span>Thinking...</span>`;
-    if (window.lucide) lucide.createIcons();
+    closeDialog();
+    showThinkingToast("Thinking");
     try {
       const text = await callAI(action, contextLabel);
-      closeDialog();
-      const parsed = parseAIResult(text);
-      presentAIResult(parsed, "Custom Choice");
+      hideThinkingToast();
+      if (!text || !text.trim()) {
+        showWarningDialog(aiWarningTitle("empty"), "The AI returned an empty response. The model may be overloaded — try again.");
+      } else {
+        const parsed = parseAIResult(text);
+        presentAIResult(parsed, "Custom Choice");
+      }
     } catch (err) {
       console.error(err);
-      closeDialog();
-      showAftermath("AI Error", "Reaching the AI failed: " + err.message);
+      hideThinkingToast();
+      const kind = classifyAIError(err);
+      showWarningDialog(aiWarningTitle(kind), err.message || "Reaching the AI failed unexpectedly.");
     }
     render();
   };
@@ -4636,15 +4963,19 @@ function askAICustomAction(prompt, contextLabel) {
 
 // AI Mode: ask the AI for a random life event this year, optionally with choices.
 async function triggerAIEvent(age) {
+  showThinkingToast("Generating event");
   try {
-    const userPrompt = `Invent a single specific life event for me this year. Make it varied, surprising, and grounded in my circumstances. Provide a "narration" of what happened. If the event involves a decision, include 2-4 "options" so I can choose. Otherwise omit options.`;
+    const userPrompt = `Invent a single specific life event for me this year. Make it varied, surprising, and grounded in my circumstances. Include a "category" (e.g. "family", "work", "romance", "tragedy", "windfall", "health", "social", "achievement") that summarizes the theme. Provide a "narration" of what happened. If the event involves a decision, include 2-4 "options" so I can choose. Otherwise omit options. You may also include a "special" field with one of these story hooks to drive real game state: "newPartner", "divorce", "addChild", "newSibling", "addFriend", "die_now", "addiction_alcohol", "addiction_drugs", "addiction_smoking", "raise_small"/"raise_medium"/"raise_big", "demoted", "needTherapy", "pet:dog"/"pet:cat".`;
     const text = await callAI(userPrompt, `year_event_age_${age}`);
+    hideThinkingToast();
+    if (!text || !text.trim()) return;
     const parsed = parseAIResult(text);
     if (!parsed) return;
-    presentAIResult(parsed, "Life Event");
+    presentAIResult(parsed, null);  // null → use category from parsed
     render();
   } catch (err) {
     console.error("AI event error:", err);
+    hideThinkingToast();
     // Silent fallback — don't bother the user every year if the API is down
   }
 }
