@@ -226,6 +226,8 @@ function blankState() {
     aiModel: localStorage.getItem("bitlife_ai_model") || "",
     aiProvider: localStorage.getItem("bitlife_ai_provider") || "anthropic",
     aiMode: localStorage.getItem("bitlife_ai_mode") === "1",
+    aiOutputEffort: localStorage.getItem("bitlife_ai_output_effort") || "medium", // "short" | "medium" | "long"
+    aiStyle: localStorage.getItem("bitlife_ai_style") || "",                       // freeform user note appended to system prompt
     lifeManagement: localStorage.getItem("bitlife_life_management") !== "0", // default ON
     realisticMode: localStorage.getItem("bitlife_realistic_mode") === "1",
     realisticUnit: localStorage.getItem("bitlife_realistic_unit") || "day",
@@ -590,6 +592,8 @@ function loadGame() {
     snap.state.aiModel        = localStorage.getItem("bitlife_ai_model") || "";
     snap.state.aiProvider     = localStorage.getItem("bitlife_ai_provider") || "anthropic";
     snap.state.aiMode         = localStorage.getItem("bitlife_ai_mode") === "1";
+    snap.state.aiOutputEffort = localStorage.getItem("bitlife_ai_output_effort") || "medium";
+    snap.state.aiStyle        = localStorage.getItem("bitlife_ai_style") || "";
     snap.state.lifeManagement = localStorage.getItem("bitlife_life_management") !== "0";
     snap.state.realisticMode  = localStorage.getItem("bitlife_realistic_mode") === "1";
     snap.state.realisticUnit  = localStorage.getItem("bitlife_realistic_unit") || "day";
@@ -630,6 +634,8 @@ function loadFromSlot(slotNum) {
     snap.state.aiModel        = localStorage.getItem("bitlife_ai_model") || "";
     snap.state.aiProvider     = localStorage.getItem("bitlife_ai_provider") || "anthropic";
     snap.state.aiMode         = localStorage.getItem("bitlife_ai_mode") === "1";
+    snap.state.aiOutputEffort = localStorage.getItem("bitlife_ai_output_effort") || "medium";
+    snap.state.aiStyle        = localStorage.getItem("bitlife_ai_style") || "";
     snap.state.lifeManagement = localStorage.getItem("bitlife_life_management") !== "0";
     snap.state.realisticMode  = localStorage.getItem("bitlife_realistic_mode") === "1";
     snap.state.realisticUnit  = localStorage.getItem("bitlife_realistic_unit") || "day";
@@ -5423,6 +5429,17 @@ function viewMenu() {
         <button class="success" id="saveAI">Save</button>
         <button class="danger" id="clearAI">Clear</button>
       </div>
+
+      <div class="form-label">Output Effort</div>
+      <select id="aiOutputEffort">
+        <option value="short"  ${State.aiOutputEffort === "short"  ? "selected" : ""}>Shorter messages</option>
+        <option value="medium" ${(!State.aiOutputEffort || State.aiOutputEffort === "medium") ? "selected" : ""}>Middle-sized messages</option>
+        <option value="long"   ${State.aiOutputEffort === "long"   ? "selected" : ""}>Longer messages</option>
+      </select>
+
+      <div class="form-label">Style (optional)</div>
+      <textarea id="aiStyle" rows="3" placeholder="Tell the model how you want it to write. e.g. 'wry, dry humor', 'literary and reflective', 'gritty and unsentimental', 'lighthearted and playful'.">${escapeHtml(State.aiStyle || "")}</textarea>
+
       <div class="toggle-row">
         <div class="toggle-text">
           <div class="toggle-title">Life Management</div>
@@ -5468,11 +5485,24 @@ function viewMenu() {
       State.apiKey = e.target.value.trim();
       localStorage.setItem("bitlife_api_key", State.apiKey);
     };
+    // Output Effort — short / medium / long messages
+    sec2.querySelector("#aiOutputEffort").onchange = (e) => {
+      State.aiOutputEffort = e.target.value;
+      localStorage.setItem("bitlife_ai_output_effort", e.target.value);
+    };
+    // Style — free-form note appended to the system prompt
+    sec2.querySelector("#aiStyle").oninput = (e) => {
+      State.aiStyle = e.target.value;
+      localStorage.setItem("bitlife_ai_style", e.target.value);
+    };
     sec2.querySelector("#clearAI").onclick = () => {
       State.apiKey = ""; State.aiModel = ""; State.aiProvider = "anthropic";
+      State.aiOutputEffort = "medium"; State.aiStyle = "";
       localStorage.removeItem("bitlife_api_key");
       localStorage.removeItem("bitlife_ai_model");
       localStorage.removeItem("bitlife_ai_provider");
+      localStorage.removeItem("bitlife_ai_output_effort");
+      localStorage.removeItem("bitlife_ai_style");
       viewMenu();
     };
     sec2.querySelector("#lifeManagement").onchange = (e) => {
@@ -5825,7 +5855,29 @@ Story hooks (use these in "special" to drive real game state, not just narration
 
 You may invent dramatic events: a family member dying, an accident, a windfall, a betrayal, a reunion. Use specials to make these events have real consequences in the game state — not just narration.`;
 
+  // Output effort — controls verbosity of narration and aftermath
+  const effortDirective = {
+    short:  `Output Effort: SHORTER MESSAGES. Keep narration to 1 brief sentence and aftermath to 1 sentence. Be terse.`,
+    medium: `Output Effort: MIDDLE-SIZED MESSAGES. Narration should be 2-3 sentences; aftermath 1-2 sentences. Balance brevity and texture.`,
+    long:   `Output Effort: LONGER MESSAGES. Narration should be 4-6 vivid sentences; aftermath 2-3 sentences of reflection. Take your time — but stay in scene, don't pad.`,
+  }[State.aiOutputEffort || "medium"];
+
+  // Style — free-form user instruction, optional
+  const styleDirective = (State.aiStyle && State.aiStyle.trim())
+    ? `Style instructions from the player: ${State.aiStyle.trim()}`
+    : "";
+
   const sys = customSystem || `You are the narrator for a text-based adult life simulator. The player is over 18 and has chosen this model themselves. Narrate events in first-person past-tense. Follow your own policies — when something is outside what you'll write, return JSON with a "refusal" field instead of a narration.
+
+Strict flow ordering for every response:
+  Age button click  →  Choice dialog (when options[] present)  →  Aftermath
+Always produce output that respects this order:
+  - "narration" / "body" is what the player reads in the FIRST dialog after clicking.
+  - If options[] is present, do NOT pre-resolve the outcome in narration. Save the consequences for each option's own narration/aftermath.
+  - "aftermath" is the closing beat shown AFTER the player dismisses the choice dialog. Never include it on a choice that hasn't been picked yet — put it on each option, or on the top-level for option-less results.
+
+${effortDirective}
+${styleDirective}
 
 Context tag: ${contextLabel}.
 ${stateSummaryForAI()}
@@ -6344,15 +6396,41 @@ async function triggerAIEvent(age) {
     const userPrompt = `Invent a single specific life event for me this year. Make it varied, surprising, and grounded in my circumstances. Include a "category" (e.g. "family", "work", "romance", "tragedy", "windfall", "health", "social", "achievement") that summarizes the theme. Provide a "narration" of what happened. If the event involves a decision, include 2-4 "options" so I can choose. Otherwise omit options. You may also include a "special" field with one of these story hooks to drive real game state: "newPartner", "divorce", "addChild", "newSibling", "addFriend", "die_now", "addiction_alcohol", "addiction_drugs", "addiction_smoking", "raise_small"/"raise_medium"/"raise_big", "demoted", "needTherapy", "pet:dog"/"pet:cat".`;
     const text = await callAI(userPrompt, `year_event_age_${age}`);
     hideThinkingToast();
-    if (!text || !text.trim()) return;
+    if (!text || !text.trim()) {
+      showWarningDialog(
+        aiWarningTitle("empty"),
+        "AI Mode is on but the model returned an empty response. The model may be overloaded — try again, or switch model.",
+        "EMPTY_RESPONSE"
+      );
+      return;
+    }
     const parsed = parseAIResult(text);
-    if (!parsed) return;
+    if (!parsed) {
+      showWarningDialog(
+        aiWarningTitle("parse"),
+        "AI Mode is on but the model's response wasn't valid JSON. Try a different model, or turn AI Mode off in Settings.",
+        "PARSE_ERROR"
+      );
+      return;
+    }
     presentAIResult(parsed, null);  // null → use category from parsed
     render();
   } catch (err) {
     console.error("AI event error:", err);
     hideThinkingToast();
-    // Silent fallback — don't bother the user every year if the API is down
+    // Surface the failure so the player knows AI Mode hit a wall — same UI
+    // language as Custom Activity errors (refusal goes to friendly notice,
+    // everything else to the red warning dialog with the HTTP code).
+    if (err && err.message && err.message.includes("[CONTENT_FILTER]")) {
+      showRefusalDialog(err.message.replace(/.*\[CONTENT_FILTER\]\s*/, "").trim());
+    } else {
+      const info = classifyAIError(err);
+      showWarningDialog(
+        aiWarningTitle(info.kind),
+        err.message || "AI Mode couldn't reach the model this year.",
+        info.code
+      );
+    }
   }
 }
 
