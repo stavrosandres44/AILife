@@ -5,13 +5,11 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-# Configura los permisos del token de GitHub para poder escribir en Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Evita que se acumulen despliegues viejos si haces pushes seguidos
 concurrency:
   group: "pages"
   cancel-in-progress: true
@@ -28,11 +26,12 @@ jobs:
 
       - name: Configurar Pages
         uses: actions/configure-pages@v5
+        with:
+          cname: bitlife.cloud
 
       - name: Subir artefactos de la web
         uses: actions/upload-pages-artifact@v3
         with:
-          # Sube la raíz del repositorio (donde está index.html)
           path: '.'
 
       - name: Desplegar en GitHub Pages
