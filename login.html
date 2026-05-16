@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AILife — Sign In</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: system-ui, sans-serif;
+    background: #f3f3f3;
+    color: #222;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* TOP BAR — matches main app */
+  .topbar {
+    background: #c00000;
+    color: #fff;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    flex-shrink: 0;
+  }
+  .topbar h1 {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .back-link {
+    color: #fff;
+    text-decoration: none;
+    font-size: 13px;
+    opacity: 0.85;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: background 0.15s;
+  }
+  .back-link:hover { background: rgba(255,255,255,0.12); opacity: 1; }
+
+  /* MAIN */
+  main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 6px 28px rgba(0,0,0,0.08);
+    padding: 36px 32px 32px;
+    width: 100%;
+    max-width: 420px;
+  }
+  .login-card h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #222;
+  }
+  .login-card .subtitle {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 22px;
+    line-height: 1.5;
+  }
+  .field {
+    margin-bottom: 16px;
+  }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #444;
+    margin-bottom: 6px;
+    letter-spacing: 0.3px;
+  }
+  .field input {
+    width: 100%;
+    padding: 11px 13px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field input:focus {
+    outline: none;
+    border-color: #3a6cb0;
+    box-shadow: 0 0 0 3px rgba(58, 108, 176, 0.15);
+  }
+  .submit-btn {
+    width: 100%;
+    background: #2e9b3a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    margin-top: 6px;
+    transition: background 0.15s, transform 0.08s;
+  }
+  .submit-btn:hover { background: #267e30; }
+  .submit-btn:active { transform: scale(0.98); }
+  .submit-btn:disabled { background: #999; cursor: not-allowed; }
+
+  .alt-row {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 14px;
+    font-size: 12px;
+  }
+  .alt-row a {
+    color: #3a6cb0;
+    text-decoration: none;
+  }
+  .alt-row a:hover { text-decoration: underline; }
+
+  .beta-note {
+    margin-top: 22px;
+    padding: 10px 12px;
+    background: #fff8ec;
+    border-left: 3px solid #c98a2b;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #6a5020;
+    line-height: 1.5;
+  }
+  .beta-note strong { color: #c98a2b; }
+
+  .error-msg {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: #fdecec;
+    border-left: 3px solid #962a2a;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #962a2a;
+    display: none;
+  }
+  .error-msg.show { display: block; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>AILife</h1>
+  <a class="back-link" href="index.html">← Back to game</a>
+</header>
+
+<main>
+  <div class="login-card">
+    <h2>Link your account</h2>
+    <p class="subtitle">Sign in to sync your saved lives across devices.</p>
+
+    <form id="loginForm" autocomplete="on">
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password" minlength="6" />
+      </div>
+      <button type="submit" class="submit-btn" id="submitBtn">Sign In</button>
+      <div class="error-msg" id="errorMsg"></div>
+    </form>
+
+    <div class="alt-row">
+      <a href="#" id="signupLink">Create account</a>
+      <a href="#" id="forgotLink">Forgot password?</a>
+    </div>
+
+    <div class="beta-note">
+      <strong>Beta</strong> — Account sync is in beta. Saves are linked to your email; backend infrastructure is still being rolled out. Local saves are unaffected.
+    </div>
+  </div>
+</main>
+
+<script>
+  const form = document.getElementById("loginForm");
+  const errorMsg = document.getElementById("errorMsg");
+  const submitBtn = document.getElementById("submitBtn");
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.classList.add("show");
+  }
+  function clearError() {
+    errorMsg.classList.remove("show");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearError();
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+
+    if (!email || !password) {
+      showError("Email and password are required.");
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in...";
+
+    try {
+      // Beta: store the linkage locally. When the backend ships, this is
+      // where we'd POST to /api/login and store a session token.
+      localStorage.setItem("ailife_account_email", email);
+      localStorage.setItem("ailife_last_sync", String(Date.now()));
+
+      // Redirect back to the game
+      setTimeout(() => {
+        window.location.href = "index.html";
+      }, 400);
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign In";
+      showError(err.message || "Sign-in failed. Try again.");
+    }
+  });
+
+  document.getElementById("signupLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    showError("Account creation isn't open yet — beta sign-in only.");
+  });
+  document.getElementById("forgotLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    showError("Password reset isn't available yet — beta sign-in only.");
+  });
+</script>
+
+</body>
+</html>
