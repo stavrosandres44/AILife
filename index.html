@@ -402,7 +402,7 @@
     text-transform: uppercase;
     margin-bottom: 10px;
   }
-  .form-section input, .form-section select {
+  .form-section input, .form-section select, .form-section textarea {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid #ddd;
@@ -411,6 +411,20 @@
     font-family: inherit;
     margin-bottom: 8px;
     background: #fff;
+    box-sizing: border-box;
+  }
+  .form-section textarea {
+    resize: vertical;
+    min-height: 70px;
+    line-height: 1.5;
+  }
+  .form-section .form-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #444;
+    margin: 10px 0 4px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
   }
   .form-section .btn-row { display: flex; gap: 8px; margin-top: 8px; }
   .about-text p { margin: 0 0 10px 0; font-size: 13px; color: #444; line-height: 1.5; }
@@ -1506,6 +1520,6 @@
   <div class="dlg-hint" id="dialogHint" style="display:none;">click anywhere to leave</div>
 </div>
 
-<script src="function.js?v=109"></script>
+<script src="function.js?v=110"></script>
 </body>
 </html>
