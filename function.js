@@ -4519,6 +4519,74 @@ function viewMenu() {
       };
     }
 
+    // === Send Feedback ===
+    const FEEDBACK_EMAIL = "stavroselpro@gmail.com"; // CHANGE this to your real email
+    const secFb = document.createElement("div");
+    secFb.className = "form-section";
+    secFb.innerHTML = `<h4>📨 Send Feedback</h4>
+      <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
+        Found a bug, weird AI behavior, or have a feature idea? Tell me about it.
+      </p>
+      <textarea id="fbMessage" placeholder="What's on your mind? Bugs, ideas, feedback…" rows="4"
+                style="width:100%;padding:10px;font-family:inherit;font-size:13px;border:1px solid #d0d0d0;border-radius:6px;resize:vertical;min-height:80px;"></textarea>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="success" id="fbSend">Send via Email</button>
+        <button id="fbCopy">Copy to Clipboard</button>
+      </div>
+      <p style="font-size:11px;color:#888;margin-top:6px;">
+        Opens your default email app addressed to ${FEEDBACK_EMAIL}. Your current game state is included automatically so I can reproduce issues.
+      </p>`;
+    body.appendChild(secFb);
+
+    // Build the feedback body — message + auto-captured context for repro
+    const buildFeedbackBody = (msg) => {
+      const ctx = [
+        `--- Player feedback ---`,
+        msg || "(no message)",
+        ``,
+        `--- Auto-captured context (please leave attached) ---`,
+        `App version: function.js?v=100`,
+        `Browser:     ${navigator.userAgent}`,
+        `Viewport:    ${window.innerWidth}x${window.innerHeight}`,
+        `Local time:  ${new Date().toLocaleString()}`,
+        ``,
+        `Player:      ${State.firstName || "(unnamed)"}, age ${State.age}, ${State.alive ? "alive" : "deceased"}`,
+        `Country:     ${State.country || "?"}`,
+        `Job:         ${State.job ? State.job.title : (State.inSchool ? "Student" : State.inCollege ? "College student" : "None")}`,
+        `Stats:       mood ${State.stats.mood}, health ${State.stats.health}, smarts ${State.stats.smarts}, looks ${State.stats.looks}`,
+        `Money:       ${money(State.money + State.bank)}`,
+        `Badges:      ${State.badges.length}`,
+        `Log entries: ${State.log.length}`,
+        `AI provider: ${State.aiProvider || "(none)"} (mode=${State.aiMode ? "on" : "off"})`,
+        `Realistic:   ${State.realisticMode ? `on (${State.realisticUnit})` : "off"}`,
+      ].join("\n");
+      return ctx;
+    };
+
+    secFb.querySelector("#fbSend").onclick = () => {
+      const msg = secFb.querySelector("#fbMessage").value.trim();
+      if (!msg) {
+        showAftermath("Empty Feedback", "Type something before sending.");
+        return;
+      }
+      const subject = "AILife Feedback — " + new Date().toISOString().slice(0, 10);
+      const body = buildFeedbackBody(msg);
+      const href = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      // Open in the user's default mail client
+      window.location.href = href;
+    };
+
+    secFb.querySelector("#fbCopy").onclick = async () => {
+      const msg = secFb.querySelector("#fbMessage").value.trim();
+      const body = `To: ${FEEDBACK_EMAIL}\nSubject: AILife Feedback\n\n` + buildFeedbackBody(msg);
+      try {
+        await navigator.clipboard.writeText(body);
+        showAftermath("Copied", "Feedback copied. Paste it into an email to me whenever you can.");
+      } catch (e) {
+        showAftermath("Copy Failed", "Couldn't copy — your browser blocked clipboard access.");
+      }
+    };
+
     // === Support the developer ===
     const secCoffee = document.createElement("div");
     secCoffee.className = "form-section";
@@ -5036,7 +5104,7 @@ function bind() {
 async function init() {
   const splash = document.getElementById("loadingSplash");
   try {
-    const res = await fetch("game.json?v=20");
+    const res = await fetch("game.json?v=" + Date.now(), { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     GAME = await res.json();
   } catch (err) {
