@@ -56,7 +56,7 @@ function interpolate(s) {
 }
 
 /* ============ SOUND SYSTEM ============ */
-const SOUND_IDS = ["menu","back","choiceselect","aibutton","age","achievement","aftermath","dialog"];
+const SOUND_IDS = ["menu","back","choiceselect","aibutton","age","achievement","aftermath","dialog","death"];
 const SOUNDS = {};
 let _audioUnlocked = false;
 let _audioVolume = 0.7;
@@ -74,6 +74,7 @@ const SOUND_COOLDOWNS = {
   choiceselect: 100,  // choice click
   age:          200,  // age-up
   aibutton:     150,
+  death:        2000, // death toll — long, prevents accidental retrigger
 };
 const _lastPlayedAt = {};       // soundId -> ms timestamp
 let _lastAnyPlayedAt = 0;       // global last-play timestamp
@@ -896,7 +897,7 @@ const DLG = {
 let aftermathHandler = null;
 
 function closeDialog() {
-  DLG.overlay.classList.remove("show", "aftermath", "warning");
+  DLG.overlay.classList.remove("show", "aftermath", "warning", "tombstone");
   DLG.hint.style.display = "none";
   if (aftermathHandler) {
     DLG.overlay.removeEventListener("click", aftermathHandler);
@@ -3457,30 +3458,247 @@ function computeDeathChance() {
 }
 
 function die(causeOverride) {
+  if (!State.alive) return; // already dead — don't double-trigger
   State.alive = false;
   let cause;
-  if (causeOverride === "surrender") cause = "their own hand — they gave up";
+  let isSurrender = false;
+  if (causeOverride === "surrender") {
+    cause = "their own hand — they gave up";
+    isSurrender = true;
+  }
   else if (causeOverride) cause = causeOverride;
   else if (State.stats.health < 5) cause = "poor health";
   else if (State.addictions.length) cause = "complications from addiction";
   else if (State.age > 90) cause = "old age";
   else cause = "natural causes";
+
+  State.deathCause = cause;
+  State.deathAge = State.age;
+  State.isSurrender = isSurrender;
   logEvent(`I died at age ${State.age} from ${cause}.`, "death");
-  showAftermath("The End", buildLifeSummary(cause));
+
+  // Play the death toll. Skip the "synced" path — we want it immediate and long.
+  playSound("death");
+
+  // Show the tombstone screen instead of a regular aftermath
+  showTombstone(cause, isSurrender);
   render();
 }
 
-function buildLifeSummary(cause) {
-  const lines = [
-    `Lived to age ${State.age}.`,
-    `Cause: ${cause}.`,
-    State.job ? `Final job: ${State.job.title}.` : "Never held a job.",
-    State.partner ? `Survived by ${State.partner.name}.` : "Died single.",
-    State.children.length ? `Left behind ${State.children.length} child(ren).` : "No children.",
-    `Net estate: ${money(netWorth())}.`,
-    `Badges earned: ${State.badges.length} of ${GAME.badges.length}.`,
-  ];
-  return lines.join(" ");
+// Score a life from 0-100 and map to a rating label.
+function rateLife(isSurrender) {
+  if (isSurrender) {
+    return { label: "Waste",       score: 0,  emoji: "💀", color: "#5a5a5a", desc: "Threw it all away. Some flowers, no answers." };
+  }
+
+  // Achievement points
+  let s = 0;
+  s += Math.min(40, State.badges.length * 2);                        // up to 40 from badges
+  s += State.children.length * 4;                                    // family
+  s += (State.friends || []).length * 1.5;                           // friends
+  s += State.partner && State.partner.married ? 8 : 0;               // marriage
+  if (State.education === "College graduate") s += 6;
+  if (State.education === "Postgraduate")     s += 10;
+  if (netWorth() > 100000)    s += 4;
+  if (netWorth() > 1000000)   s += 8;
+  if (netWorth() > 10000000)  s += 10;
+  if (State.age >= 80)        s += 4;
+  if (State.age >= 95)        s += 6;
+  if (State.charitableGiving && State.charitableGiving > 100000) s += 8;
+  if (State.memory && State.memory.published_book)   s += 6;
+  if (State.memory && State.memory.olympic_athlete)  s += 8;
+  if (State.memory && State.memory.saved_a_life)     s += 6;
+  if (State.memory && State.memory.war_hero)         s += 6;
+
+  // Deductions
+  if (State.criminalRecord > 0)   s -= State.criminalRecord * 3;
+  if (State.addictions.length)    s -= State.addictions.length * 4;
+  if (State.memory && State.memory.was_homeless)         s -= 4;
+  if (State.memory && State.memory.had_affair)           s -= 5;
+  if (State.memory && State.memory.failed_teen_parent)   s -= 3;
+  if (State.age < 25)             s -= 20;  // dying very young drags rating
+  if (State.age < 18)             s -= 30;
+  if (State.illnesses.length > 3) s -= 4;
+
+  s = Math.max(0, Math.min(100, Math.round(s)));
+
+  // Map score to label
+  if (s >= 90) return { label: "Legendary",  score: s, emoji: "⭐", color: "#c98a2b", desc: "A life people will tell stories about for generations." };
+  if (s >= 75) return { label: "Remarkable", score: s, emoji: "🌟", color: "#2e9b3a", desc: "A life that left a real mark on the world." };
+  if (s >= 60) return { label: "Fulfilling", score: s, emoji: "🌱", color: "#3a6cb0", desc: "A life rich with love, work, and meaning." };
+  if (s >= 45) return { label: "Decent",     score: s, emoji: "🌾", color: "#5a7d8c", desc: "A life of small joys and quiet accomplishments." };
+  if (s >= 30) return { label: "Mediocre",   score: s, emoji: "🪨", color: "#7a7a7a", desc: "A life that came and went without much fuss." };
+  if (s >= 15) return { label: "Forgettable",score: s, emoji: "🌫️", color: "#6a6a6a", desc: "Few will remember you were here." };
+  return        { label: "Tragic",            score: s, emoji: "🥀", color: "#7a3a3a", desc: "A life cut short or hollowed out by hardship." };
+}
+
+// Build the list of people who came to the funeral. Family members come by default.
+// Friends come based on relationship level. A few extra walk-ons for color.
+function buildFuneralAttendees() {
+  const attendees = [];
+  // Family
+  if (State.partner && !State.partner.deceased) {
+    attendees.push({ name: State.partner.name, role: State.partner.married ? "spouse" : "partner" });
+  }
+  if (State.parents) {
+    if (State.parents.mother) attendees.push({ name: State.parents.mother, role: "mother" });
+    if (State.parents.father) attendees.push({ name: State.parents.father, role: "father" });
+  }
+  for (const sib of (State.siblings || [])) {
+    attendees.push({ name: sib.name, role: sib.gender === "M" ? "brother" : "sister" });
+  }
+  for (const ch of (State.children || [])) {
+    attendees.push({ name: ch.name, role: ch.gender === "M" ? "son" : "daughter" });
+  }
+  // Friends — only those with level > 50, capped at 6 to keep the list readable
+  const closeFriends = (State.friends || []).filter(f => (f.level || 0) >= 50).slice(0, 6);
+  for (const fr of closeFriends) {
+    attendees.push({ name: fr.name, role: "friend" });
+  }
+  // Pets — always come
+  for (const pet of (State.pets || [])) {
+    attendees.push({ name: pet.name, role: pet.kind || "pet" });
+  }
+  return attendees;
+}
+
+function buildLifeNarrative(cause, rating) {
+  // 2-3 sentence customized epitaph based on player's actual life
+  const bits = [];
+  const first = State.firstName || "they";
+  const yearsPart = State.age >= 80 ? `lived a long ${State.age} years`
+                  : State.age >= 50 ? `passed at ${State.age}`
+                  : State.age >= 25 ? `gone too soon at ${State.age}`
+                  : State.age >= 10 ? `taken at just ${State.age}`
+                  :                   `barely got to live, lost at ${State.age}`;
+  bits.push(`${first} ${yearsPart}.`);
+
+  // Career
+  if (State.job) bits.push(`Worked as a ${State.job.title}.`);
+  else if (State.education === "College graduate") bits.push(`A college graduate who never settled into one career.`);
+  else if (State.criminalRecord >= 3) bits.push(`Spent more of life on the wrong side of the law than off it.`);
+
+  // Family
+  if (State.children.length >= 3) bits.push(`Raised ${State.children.length} children who carry the name forward.`);
+  else if (State.children.length === 2) bits.push(`Left behind two children.`);
+  else if (State.children.length === 1) bits.push(`Left behind one child.`);
+  if (State.partner && State.partner.married && !State.partner.deceased) {
+    bits.push(`Married to ${State.partner.name} until the end.`);
+  }
+
+  // Highlights from memory
+  const m = State.memory || {};
+  if (m.published_book) bits.push(`Wrote a book that found its readers.`);
+  if (m.olympic_athlete) bits.push(`Competed at the Olympics.`);
+  if (m.saved_a_life) bits.push(`Saved a life once. That counts more than most monuments.`);
+  if (m.war_hero) bits.push(`Decorated for service in war.`);
+  if (m.was_homeless) bits.push(`Knew the street and the relief of a roof again.`);
+  if (m.mom_bought_house) bits.push(`Inherited the family home that mom helped buy.`);
+
+  // Closing
+  bits.push(rating.desc);
+  return bits.join(" ");
+}
+
+function showTombstone(cause, isSurrender) {
+  const rating = rateLife(isSurrender);
+  const narrative = buildLifeNarrative(cause, rating);
+  const attendees = buildFuneralAttendees();
+  const fullName = `${State.firstName || ""} ${State.lastName || ""}`.trim() || "Unknown";
+  const birthYear = State.log && State.log[0] ? (State.log[0].year || "?") : "?";
+  const deathYear = birthYear !== "?" ? birthYear + State.age : "?";
+
+  // Build the tombstone HTML
+  DLG.header.textContent = "The End";
+  DLG.body.innerHTML = "";
+  DLG.hint.style.display = "block";
+  DLG.hint.textContent = "Tap anywhere to continue";
+
+  const wrap = document.createElement("div");
+  wrap.className = "tombstone-wrap";
+
+  // The stone itself
+  const stone = document.createElement("div");
+  stone.className = "tombstone";
+  stone.innerHTML = `
+    <div class="tombstone-rip">R.I.P.</div>
+    <div class="tombstone-name">${escapeHtml(fullName)}</div>
+    <div class="tombstone-years">${birthYear} — ${deathYear}</div>
+    <div class="tombstone-divider"></div>
+    <div class="tombstone-cause">${escapeHtml(cause)}</div>
+    ${(State.flowers || []).length || State.flowersLeft ? '<div class="tombstone-flowers">🌷</div>' : ''}`;
+  wrap.appendChild(stone);
+
+  // Rating badge
+  const ratingEl = document.createElement("div");
+  ratingEl.className = "tombstone-rating";
+  ratingEl.style.background = rating.color;
+  ratingEl.innerHTML = `
+    <span class="rating-emoji">${rating.emoji}</span>
+    <span class="rating-label">${rating.label}</span>
+    <span class="rating-score">${rating.score}/100</span>`;
+  wrap.appendChild(ratingEl);
+
+  // Narrative
+  const narr = document.createElement("div");
+  narr.className = "tombstone-narrative";
+  narr.textContent = narrative;
+  wrap.appendChild(narr);
+
+  // Stats line
+  const stats = document.createElement("div");
+  stats.className = "tombstone-stats";
+  stats.innerHTML = `
+    <div class="ts-stat"><span class="ts-stat-label">Net estate</span><span class="ts-stat-value">${money(netWorth())}</span></div>
+    <div class="ts-stat"><span class="ts-stat-label">Badges</span><span class="ts-stat-value">${State.badges.length} / ${GAME.badges.length}</span></div>
+    <div class="ts-stat"><span class="ts-stat-label">Children</span><span class="ts-stat-value">${State.children.length}</span></div>
+    <div class="ts-stat"><span class="ts-stat-label">Friends</span><span class="ts-stat-value">${(State.friends||[]).length}</span></div>`;
+  wrap.appendChild(stats);
+
+  // Funeral attendees
+  const fun = document.createElement("div");
+  fun.className = "tombstone-funeral";
+  if (attendees.length === 0) {
+    fun.innerHTML = `
+      <div class="funeral-header">Funeral attendance</div>
+      <div class="funeral-empty">No one came. They were lowered into the ground alone.</div>`;
+  } else {
+    const items = attendees.map(a =>
+      `<div class="funeral-attendee">
+         <span class="att-name">${escapeHtml(a.name)}</span>
+         <span class="att-role">${escapeHtml(a.role)}</span>
+       </div>`
+    ).join("");
+    fun.innerHTML = `
+      <div class="funeral-header">Funeral attendance — ${attendees.length} ${attendees.length === 1 ? "mourner" : "mourners"}</div>
+      <div class="funeral-list">${items}</div>`;
+  }
+  wrap.appendChild(fun);
+
+  // CTA: start a new life
+  const cta = document.createElement("button");
+  cta.className = "tombstone-newlife-btn";
+  cta.textContent = "Start a New Life";
+  cta.onclick = (e) => {
+    e.stopPropagation();
+    closeDialog();
+    if (typeof newLife === "function") newLife();
+  };
+  wrap.appendChild(cta);
+
+  DLG.body.appendChild(wrap);
+  DLG.overlay.classList.add("show", "aftermath", "tombstone");
+
+  // Click-anywhere also starts a new life
+  aftermathHandler = (ev) => {
+    // Ignore clicks on the CTA itself (it has its own handler)
+    if (ev && ev.target && ev.target.classList && ev.target.classList.contains("tombstone-newlife-btn")) return;
+    closeDialog();
+    if (typeof newLife === "function") newLife();
+  };
+  setTimeout(() => DLG.overlay.addEventListener("click", aftermathHandler), 200);
+
+  if (window.lucide) lucide.createIcons();
 }
 
 /* ============ EVENT TRIGGER ============ */
@@ -4526,6 +4744,41 @@ function showPersonActions(person, type) {
     label.textContent = "Actions";
     body.appendChild(label);
 
+    // === Custom Activity (AI) — at the top so it's discoverable per-person ===
+    const aiRow = document.createElement("div");
+    aiRow.className = "row-item ai-activity-row" + (State.apiKey ? "" : " locked");
+    aiRow.innerHTML = `
+      <div class="row-text">
+        <div class="row-title"><i data-lucide="sparkles" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:#7e3ec7;"></i>Custom Activity (AI)</div>
+        <div class="row-desc">${State.apiKey
+          ? `Describe anything you want to do with ${person.name} — the AI handles the rest.`
+          : "Add an API key in the Menu to unlock."}</div>
+      </div>
+      <i data-lucide="chevron-right" class="row-arrow"></i>`;
+    if (State.apiKey) {
+      aiRow.onclick = () => {
+        closeSubview();
+        // Tag the AI call so it knows this is a relationship interaction
+        const relType = type === "partner" ? "partner"
+                      : type === "child"   ? "child"
+                      : type === "parent"  ? (person.role || "parent")
+                      : type === "sibling" ? (person.gender === "M" ? "brother" : "sister")
+                      : type === "friend"  ? "friend"
+                      : type === "pet"     ? "pet"
+                      : "person";
+        askAICustomAction(
+          `What do you want to do with ${person.name} (your ${relType})?`,
+          `person_interaction_${relType}_age_${State.age}`,
+          { personName: person.name, personType: relType }
+        );
+      };
+    } else {
+      aiRow.onclick = () => {
+        showAftermath("AI Locked", "Add an API key in the Menu to unlock Custom Activity (AI).");
+      };
+    }
+    body.appendChild(aiRow);
+
     // Action rows (activity-style)
     for (const a of actions) body.appendChild(personActionRow(a));
   }, viewRelations);
@@ -5527,19 +5780,30 @@ async function callAI(userAct, contextLabel, customSystem) {
   "logKind":   "good" | "bad" | "normal" | "ai",
   "stats":     {"mood": <-20..20>, "health": <-20..20>, "smarts": <-20..20>, "looks": <-20..20>},
   "money":     <integer; can be negative>,
+  "info":      [{"label":"<short>", "value":"<short>"}, ...]   // optional grey info-box rendered inside the dialog — use for concrete facts: "Reason: Lost the bet", "Court date: Next Tuesday", "Sentence: 5 years", "Partner: Sam", etc.
+  "enjoyment": <0..100>,                                       // optional bar widget for intimate/social/leisure outcomes — shows enjoyment level
   "aftermath": "<optional — the closing beat shown after the player dismisses the event. Write 1-2 sentences in present-tense reflection. ALWAYS include this if no options[] are present.>",
   "addBadge":  {"id":"<snake_case>", "name":"<short>", "icon":"<lucide icon name>", "desc":"<short>"},
   "special":   "<optional story hook — see list below>",
-  "options":   [{"label":"<short>", "narration":"<result>", "stats":{...}, "money":<int>, "tone":"good|bad|normal", "special":"<hook>", "aftermath":"<closing beat>"}]
+  "options":   [{"label":"<short>", "narration":"<result>", "stats":{...}, "money":<int>, "tone":"good|bad|normal", "special":"<hook>", "aftermath":"<closing beat>", "info":[...], "enjoyment":<0..100>}],
+  "refusal":   "<optional — if you won't write this prompt, return ONLY this field with a short reason. Do not include narration. The UI will show a friendly notice.>"
 }
 
+Flow ordering — the game presents results in this order:
+  1. The player clicked the age button or an action
+  2. If options[] is present → CHOICE DIALOG appears with body/narration + the options as buttons. The player picks one.
+  3. After the choice (or directly, if no options) → AFTERMATH dialog with aftermath text + any info/enjoyment widgets.
+
 Rules:
-- ALL fields are optional EXCEPT narration (or options[] if offering choices).
+- ALL fields are optional EXCEPT narration (or options[] if offering choices, or refusal if declining).
 - ALWAYS include "category" — never use the word "Life" as the category.
 - ALWAYS include "aftermath" when there are no options, so the player gets a clear closing moment.
+- Use info[] when there are concrete facts worth surfacing (verdicts, scores, dates, names, amounts). 2-5 rows is ideal.
+- Use enjoyment when an outcome had a clear "how was it" feel — parties, dates, vacations, intimate moments, etc.
 - Stats are DELTAS, not totals.
 - addBadge ONLY for major milestones (first kiss, graduated, became rich, near-death).
 - Be concise. Don't repeat narration in aftermath — let aftermath add reflection.
+- If a request asks for something you won't produce, return {"refusal":"<short reason>"} — do NOT write a moralizing narration or break character.
 
 Story hooks (use these in "special" to drive real game state, not just narration):
 - "newPartner"       — start a new romantic relationship
@@ -5561,7 +5825,9 @@ Story hooks (use these in "special" to drive real game state, not just narration
 
 You may invent dramatic events: a family member dying, an accident, a windfall, a betrayal, a reunion. Use specials to make these events have real consequences in the game state — not just narration.`;
 
-  const sys = customSystem || `You narrate a life simulator. Context tag: ${contextLabel}.
+  const sys = customSystem || `You are the narrator for a text-based adult life simulator. The player is over 18 and has chosen this model themselves. Narrate events in first-person past-tense. Follow your own policies — when something is outside what you'll write, return JSON with a "refusal" field instead of a narration.
+
+Context tag: ${contextLabel}.
 ${stateSummaryForAI()}
 Recent life log:
 ${lifeLogForAI()}
@@ -5580,17 +5846,30 @@ ${baseSchema}`;
 
   // Helper — read response JSON and throw an enriched error that includes
   // both the HTTP status code and the provider's message. This makes
-  // classifyAIError() reliable across providers.
+  // classifyAIError() reliable across providers. Content-policy errors
+  // get marked with "[CONTENT_FILTER]" so we can show a friendly notice
+  // instead of a generic Generation Failure.
   async function parseResp(r) {
     let j = null;
     try { j = await r.json(); } catch { /* non-JSON body */ }
+    const codeStr = (j && (j.error?.code || j.error?.type || "") + "").toLowerCase();
+    const msgStr  = (j && (j.error?.message || j.message || "") + "").toLowerCase();
+    const isFilter =
+      codeStr.includes("content_filter") ||
+      codeStr.includes("content_policy") ||
+      codeStr.includes("safety") ||
+      msgStr.includes("content policy") ||
+      msgStr.includes("safety system") ||
+      msgStr.includes("violates") ||
+      msgStr.includes("not allowed by") ||
+      msgStr.includes("flagged");
     if (!r.ok) {
       const msg = (j && (j.error?.message || j.error?.code || j.message)) || `Request failed`;
-      throw new Error(`HTTP ${r.status}: ${msg}`);
+      throw new Error(`HTTP ${r.status}: ${isFilter ? "[CONTENT_FILTER] " : ""}${msg}`);
     }
     if (j && j.error) {
       const msg = j.error.message || JSON.stringify(j.error);
-      throw new Error(`HTTP ${r.status}: ${msg}`);
+      throw new Error(`HTTP ${r.status}: ${isFilter ? "[CONTENT_FILTER] " : ""}${msg}`);
     }
     return j;
   }
@@ -5866,6 +6145,49 @@ function titleCase(s) {
   return String(s).replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// Heuristic — does narration text look like a model refusal? Models sometimes
+// ignore our refusal schema and instead reply in plain English ("I can't help
+// with that", "I'm sorry, but...", "As an AI..."). When that happens we want
+// the player to see the friendly notice rather than have the refusal text
+// land as if it were narration.
+function looksLikeRefusal(text) {
+  if (!text || typeof text !== "string") return false;
+  const t = text.toLowerCase().trim();
+  // Short responses that start with common refusal openers
+  const openers = [
+    "i can't", "i cannot", "i won't", "i will not",
+    "i'm sorry, but", "i am sorry, but",
+    "i'm not able to", "i am not able to",
+    "i'm unable to", "i am unable to",
+    "as an ai", "as a language model",
+    "sorry, i can",
+    "this request",
+    "this prompt",
+    "i don't feel comfortable",
+  ];
+  if (openers.some(o => t.startsWith(o))) return true;
+  // Or text under 240 chars containing multiple refusal markers
+  if (t.length < 240) {
+    const markers = ["can't help", "cannot help", "can't assist", "violates", "guidelines", "policy", "policies", "not appropriate", "won't generate"];
+    let hits = 0;
+    for (const m of markers) if (t.includes(m)) hits++;
+    if (hits >= 2) return true;
+  }
+  return false;
+}
+
+// Friendly soft-refusal dialog — used when the AI declines to write something.
+// Uses the warning-dialog look but with neutral copy and a softer error code.
+function showRefusalDialog(reason) {
+  showWarningDialog(
+    "Couldn't do that",
+    reason && reason.trim()
+      ? `That prompt didn't meet the model's community guidelines.\n\nThe model said: "${reason.trim()}"`
+      : "That prompt didn't meet the model's community guidelines. Try rewording it, or switch to a different model in the AI settings.",
+    "CONTENT_FILTER"
+  );
+}
+
 // Decide what to show after an AI response
 function presentAIResult(parsed, fallbackTitle) {
   if (!parsed) {
@@ -5877,15 +6199,32 @@ function presentAIResult(parsed, fallbackTitle) {
     return;
   }
 
+  // Explicit refusal field from the schema
+  if (parsed.refusal && typeof parsed.refusal === "string") {
+    showRefusalDialog(parsed.refusal);
+    return;
+  }
+
+  // Model bypassed the schema and refused in narration — detect and reroute
+  if (parsed.narration && looksLikeRefusal(parsed.narration) &&
+      !(Array.isArray(parsed.options) && parsed.options.length)) {
+    showRefusalDialog(parsed.narration);
+    return;
+  }
+
   const title = aiTitleFor(parsed, fallbackTitle);
 
-  // If the AI proposed follow-up options, show them as a new dialog
+  // If the AI proposed follow-up options, show them as a new dialog.
+  // Flow: choice dialog → player picks → aftermath.
   if (Array.isArray(parsed.options) && parsed.options.length > 0) {
     // Apply any base narration / stats first (silently — the dialog itself will narrate)
     if (parsed.narration) logEvent(parsed.narration, parsed.logKind || "ai");
     if (parsed.stats) applyStats(parsed.stats);
     if (parsed.money != null) applyStats({ money: parsed.money });
     if (parsed.special) handleOutcomeSpecial(parsed.special);
+
+    // Build info[] for the choice dialog itself, if the AI attached one to the parent
+    const choiceInfo = Array.isArray(parsed.info) ? parsed.info : null;
 
     const choices = parsed.options.map(o => ({
       label: o.label || "...",
@@ -5901,30 +6240,40 @@ function presentAIResult(parsed, fallbackTitle) {
         });
         // Show an aftermath after each AI-driven choice so the player gets
         // a clear closing beat. Prefer an explicit aftermath from the AI;
-        // otherwise synthesize one from the narration.
+        // otherwise synthesize one from the narration. Pass info/enjoyment
+        // widgets through to the aftermath.
         if (opened) return;
         const aftermath = o.aftermath || o.narration;
-        if (aftermath) showAftermath(o.aftermathTitle || title, aftermath);
+        if (aftermath) {
+          const aftermathOpts = {};
+          if (Array.isArray(o.info) && o.info.length) aftermathOpts.info = o.info;
+          if (typeof o.enjoyment === "number")        aftermathOpts.enjoyment = o.enjoyment;
+          showAftermath(o.aftermathTitle || title, aftermath, aftermathOpts);
+        }
       },
     }));
-    showOptions(title, parsed.body || parsed.narration || "What do I do?", choices);
+    showOptions(title, parsed.body || parsed.narration || "What do I do?", choices, null, choiceInfo);
     return;
   }
 
   // No follow-up — apply directly, then ALWAYS show an aftermath so the
   // player has a clear moment for the event (the AI can supply one, or
-  // we fall back to the narration as the aftermath body).
+  // we fall back to the narration as the aftermath body). Info + enjoyment
+  // widgets are passed through.
   const opened = applyAIOutcome(parsed);
   if (opened) return;
 
   const aftermath = parsed.aftermath || parsed.narration;
   if (aftermath) {
-    showAftermath(title, aftermath);
+    const aftermathOpts = {};
+    if (Array.isArray(parsed.info) && parsed.info.length) aftermathOpts.info = parsed.info;
+    if (typeof parsed.enjoyment === "number")             aftermathOpts.enjoyment = parsed.enjoyment;
+    showAftermath(title, aftermath, aftermathOpts);
   }
 }
 
 // User clicked Custom Choice (AI) — prompt for typed action, then call AI.
-function askAICustomAction(prompt, contextLabel) {
+function askAICustomAction(prompt, contextLabel, extraContext) {
   DLG.header.textContent = "Custom Choice (AI)";
   DLG.body.innerHTML = "";
   DLG.hint.style.display = "none";
@@ -5934,7 +6283,9 @@ function askAICustomAction(prompt, contextLabel) {
   DLG.body.appendChild(q);
   const ta = document.createElement("textarea");
   ta.className = "ai-input";
-  ta.placeholder = "What do you do? (be specific)";
+  ta.placeholder = extraContext && extraContext.personName
+    ? `e.g. take ${extraContext.personName} out for sushi, talk about something important`
+    : "What do you do? (be specific)";
   DLG.body.appendChild(ta);
   const btn = document.createElement("button");
   btn.className = "dlg-ai-btn";
@@ -5950,7 +6301,12 @@ function askAICustomAction(prompt, contextLabel) {
     closeDialog();
     showThinkingToast("Thinking");
     try {
-      const text = await callAI(action, contextLabel);
+      // If this is a person interaction, prefix the action with the target so
+      // the AI knows who you're addressing without us building a custom system prompt.
+      const composedAction = extraContext && extraContext.personName
+        ? `I'm interacting with ${extraContext.personName} (my ${extraContext.personType}). ${action}`
+        : action;
+      const text = await callAI(composedAction, contextLabel);
       hideThinkingToast();
       if (!text || !text.trim()) {
         showWarningDialog(
@@ -5965,12 +6321,17 @@ function askAICustomAction(prompt, contextLabel) {
     } catch (err) {
       console.error(err);
       hideThinkingToast();
-      const info = classifyAIError(err);
-      showWarningDialog(
-        aiWarningTitle(info.kind),
-        err.message || "Reaching the AI failed unexpectedly.",
-        info.code
-      );
+      // Content-policy refusals get the friendly notice; everything else is the red warning
+      if (err && err.message && err.message.includes("[CONTENT_FILTER]")) {
+        showRefusalDialog(err.message.replace(/.*\[CONTENT_FILTER\]\s*/, "").trim());
+      } else {
+        const info = classifyAIError(err);
+        showWarningDialog(
+          aiWarningTitle(info.kind),
+          err.message || "Reaching the AI failed unexpectedly.",
+          info.code
+        );
+      }
     }
     render();
   };
