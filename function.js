@@ -84,9 +84,16 @@ function initSounds() {
     const el = document.getElementById("snd-" + id);
     if (el) {
       el.volume = _audioVolume;
+      el.preload = "auto";
+      // Force the browser to start fetching the file immediately so the
+      // first play doesn't lag on a network round-trip.
+      try { el.load(); } catch (e) { /* ignore */ }
       SOUNDS[id] = el;
     }
   }
+  // Best-effort warm-up: silently "play" each sound muted on the first
+  // user gesture so the audio decoder is primed and subsequent plays are
+  // truly instant. Wrapped in unlockAudio so it runs after a gesture.
 }
 
 function playSound(name) {
@@ -107,15 +114,43 @@ function playSound(name) {
   } catch (e) { /* ignore */ }
 }
 
-// Unlock audio playback on first user gesture (browser autoplay policy)
+// Play a sound on the next paint frame so audio lines up with the visual.
+// Used for dialog/aftermath where the sound should "land" with the box appearing.
+function playSoundSynced(name) {
+  if (typeof requestAnimationFrame !== "undefined") {
+    requestAnimationFrame(() => playSound(name));
+  } else {
+    playSound(name);
+  }
+}
+
+// Unlock audio playback on first user gesture (browser autoplay policy).
+// Also primes the decoder for each sound so the first real play of each
+// sound is instant rather than lagging by 50-200ms on first hit.
 function unlockAudio() {
   _audioUnlocked = true;
-  // Touch each audio element so they're allowed to play later
   for (const id of SOUND_IDS) {
     const el = SOUNDS[id];
     if (!el) continue;
-    try { el.play().then(() => el.pause()).catch(()=>{}); } catch(e) {}
-    if (el) { el.currentTime = 0; }
+    try {
+      el.muted = true;
+      const p = el.play();
+      if (p && p.then) {
+        p.then(() => {
+          el.pause();
+          el.currentTime = 0;
+          el.muted = false;
+        }).catch(() => {
+          // Some browsers still block — at least mark as decoded
+          el.muted = false;
+          el.currentTime = 0;
+        });
+      } else {
+        el.pause();
+        el.currentTime = 0;
+        el.muted = false;
+      }
+    } catch (e) { /* ignore */ }
   }
 }
 
@@ -819,8 +854,12 @@ const SUBVIEW = {
 // Back stack: when a subview is opened on top of another, the back button
 // returns to the previous one instead of closing.
 let _subviewBackStack = [];
+// Flag set briefly during back-navigation so the parent's showSubview()
+// doesn't fire its own menu.wav on top of the back.wav we just played.
+let _suppressMenuSound = false;
+
 function showSubview(title, builder, opts) {
-  playSound("menu");
+  if (!_suppressMenuSound) playSound("menu");
   if (!opts || !opts.preserveStack) _subviewBackStack = [];
   SUBVIEW.title.textContent = title;
   SUBVIEW.body.innerHTML = "";
@@ -837,7 +876,10 @@ function closeSubview() {
   playSound("back");
   if (_subviewBackStack.length > 0) {
     const parent = _subviewBackStack.pop();
-    parent();
+    // Going back to a parent view — silence the parent's menu.wav so it
+    // doesn't collide with the back.wav we just played.
+    _suppressMenuSound = true;
+    try { parent(); } finally { _suppressMenuSound = false; }
     return;
   }
   SUBVIEW.el.classList.remove("show");
@@ -871,10 +913,21 @@ function showAftermath(title, text, opts) {
   opts = opts || {};
 
   // Achievement badges have their own sound, regular aftermath uses aftermath.wav.
-  // Slight delay so it doesn't stack on top of the choice-select click that
-  // typically immediately precedes it.
+  // We want this to *land* with the dialog appearing. But if a choiceselect
+  // click happened very recently (i.e. the player just clicked an option),
+  // the two sounds would stack — so wait just long enough to clear the
+  // choiceselect's tail. When no recent click (e.g. tap-anywhere dismiss
+  // leading to a chained aftermath), play immediately on next frame.
   const sound = (opts && opts.badge) ? "achievement" : "aftermath";
-  setTimeout(() => playSound(sound), 140);
+  const nowMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  const sinceClick = nowMs - (_lastPlayedAt["choiceselect"] || 0);
+  if (sinceClick < 200) {
+    // Wait out the choiceselect tail; 220ms total avoids overlap
+    setTimeout(() => playSound(sound), 220 - sinceClick);
+  } else {
+    // Play synced with the next paint — no stacking risk
+    playSoundSynced(sound);
+  }
 
   DLG.header.textContent = interpolate(title);
   DLG.body.innerHTML = "";
@@ -5525,6 +5578,23 @@ ${baseSchema}`;
   };
   const model = State.aiModel || defaultModels[State.aiProvider] || "gpt-4o-mini";
 
+  // Helper — read response JSON and throw an enriched error that includes
+  // both the HTTP status code and the provider's message. This makes
+  // classifyAIError() reliable across providers.
+  async function parseResp(r) {
+    let j = null;
+    try { j = await r.json(); } catch { /* non-JSON body */ }
+    if (!r.ok) {
+      const msg = (j && (j.error?.message || j.error?.code || j.message)) || `Request failed`;
+      throw new Error(`HTTP ${r.status}: ${msg}`);
+    }
+    if (j && j.error) {
+      const msg = j.error.message || JSON.stringify(j.error);
+      throw new Error(`HTTP ${r.status}: ${msg}`);
+    }
+    return j;
+  }
+
   if (State.aiProvider === "anthropic") {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -5536,8 +5606,7 @@ ${baseSchema}`;
       },
       body: JSON.stringify({ model, max_tokens: 600, system: sys, messages: [{ role: "user", content: userAct }] }),
     });
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const j = await parseResp(r);
     return j.content?.[0]?.text || "";
 
   } else if (State.aiProvider === "gemini") {
@@ -5552,8 +5621,7 @@ ${baseSchema}`;
         generationConfig: { maxOutputTokens: 600 }
       }),
     });
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const j = await parseResp(r);
     return j.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
   } else if (State.aiProvider === "grok") {
@@ -5563,8 +5631,7 @@ ${baseSchema}`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${State.apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
     });
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const j = await parseResp(r);
     return j.choices?.[0]?.message?.content || "";
 
   } else if (State.aiProvider === "poe") {
@@ -5574,8 +5641,7 @@ ${baseSchema}`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${State.apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
     });
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const j = await parseResp(r);
     return j.choices?.[0]?.message?.content || "";
 
   } else if (State.aiProvider === "openrouter") {
@@ -5593,8 +5659,7 @@ ${baseSchema}`;
       },
       body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
     });
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const j = await parseResp(r);
     return j.choices?.[0]?.message?.content || "";
 
   } else {
@@ -5604,8 +5669,7 @@ ${baseSchema}`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${State.apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userAct }], max_tokens: 600 }),
     });
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const j = await parseResp(r);
     return j.choices?.[0]?.message?.content || "";
   }
 }
@@ -5639,8 +5703,8 @@ function hideThinkingToast() {
 }
 
 // Red-banner warning dialog used when the AI fails or returns garbage.
-// Usage: showWarningDialog("Generation Failure", "Couldn't reach the model — request timed out.");
-function showWarningDialog(title, description) {
+// Usage: showWarningDialog("Generation Failure", "Couldn't reach the model.", "HTTP 500");
+function showWarningDialog(title, description, errorCode) {
   DLG.header.textContent = title || "Warning";
   DLG.body.innerHTML = "";
   DLG.hint.style.display = "none";
@@ -5652,6 +5716,14 @@ function showWarningDialog(title, description) {
   banner.className = "warning-icon-banner";
   banner.innerHTML = `<i data-lucide="alert-triangle"></i>`;
   DLG.body.appendChild(banner);
+
+  // Error code chip (e.g. "HTTP 429", "PARSE_ERROR") — appears below the icon
+  if (errorCode) {
+    const codeChip = document.createElement("div");
+    codeChip.className = "warning-code";
+    codeChip.textContent = errorCode;
+    DLG.body.appendChild(codeChip);
+  }
 
   const msg = document.createElement("div");
   msg.className = "warning-msg";
@@ -5668,6 +5740,17 @@ function showWarningDialog(title, description) {
   DLG.body.appendChild(btn);
 
   DLG.overlay.classList.add("show", "aftermath");
+  // Play the aftermath sound synced with the dialog appearing. If a click
+  // sound just fired, wait it out — otherwise play instantly on next paint.
+  {
+    const nowMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    const sinceClick = nowMs - (_lastPlayedAt["choiceselect"] || 0);
+    if (sinceClick < 200) {
+      setTimeout(() => playSound("aftermath"), 220 - sinceClick);
+    } else {
+      playSoundSynced("aftermath");
+    }
+  }
   if (window.lucide) lucide.createIcons();
 }
 
@@ -5680,18 +5763,49 @@ function aiWarningTitle(kind) {
     case "rate":     return "Rate Limit Exceeded";
     case "timeout":  return "Generation Timeout";
     case "empty":    return "Empty Response";
+    case "cors":     return "Blocked by Browser";
+    case "model":    return "Model Not Found";
+    case "server":   return "Provider Error";
     default:         return "Generation Failure";
   }
 }
 
-// Classify an error string into a kind for the title.
+// Classify an error into a kind for the title. Returns { kind, code }.
+// code is a short string like "HTTP 429" or "NETWORK" surfaced in the dialog.
 function classifyAIError(err) {
-  const m = (err && err.message ? err.message : String(err || "")).toLowerCase();
-  if (m.includes("rate") || m.includes("429") || m.includes("quota")) return "rate";
-  if (m.includes("401") || m.includes("403") || m.includes("auth") || m.includes("api key")) return "auth";
-  if (m.includes("timeout") || m.includes("timed out")) return "timeout";
-  if (m.includes("network") || m.includes("fetch") || m.includes("failed to fetch")) return "network";
-  return "network";
+  const raw = err && err.message ? err.message : String(err || "");
+  const m = raw.toLowerCase();
+
+  // Try to extract an HTTP status code if present in the error message
+  let httpCode = null;
+  const httpMatch = raw.match(/\b(4\d\d|5\d\d|3\d\d)\b/);
+  if (httpMatch) httpCode = `HTTP ${httpMatch[1]}`;
+
+  if (m.includes("429") || m.includes("rate") || m.includes("quota")) {
+    return { kind: "rate",    code: httpCode || "HTTP 429" };
+  }
+  if (m.includes("401") || m.includes("unauthorized") || m.includes("api key") || m.includes("auth")) {
+    return { kind: "auth",    code: httpCode || "HTTP 401" };
+  }
+  if (m.includes("403") || m.includes("forbidden")) {
+    return { kind: "auth",    code: httpCode || "HTTP 403" };
+  }
+  if (m.includes("404") || m.includes("not found") || m.includes("model_not_found")) {
+    return { kind: "model",   code: httpCode || "HTTP 404" };
+  }
+  if (m.includes("timeout") || m.includes("timed out")) {
+    return { kind: "timeout", code: httpCode || "TIMEOUT" };
+  }
+  if (m.includes("cors") || m.includes("blocked by")) {
+    return { kind: "cors",    code: "CORS_BLOCKED" };
+  }
+  if (m.includes("5") && httpCode && /5\d\d/.test(httpCode)) {
+    return { kind: "server",  code: httpCode };
+  }
+  if (m.includes("network") || m.includes("fetch") || m.includes("failed to fetch") || m.includes("load failed")) {
+    return { kind: "network", code: httpCode || "NETWORK" };
+  }
+  return { kind: "network", code: httpCode || "UNKNOWN" };
 }
 
 // Apply a single AI "outcome" — narration + stats + money + optional badge.
@@ -5755,7 +5869,11 @@ function titleCase(s) {
 // Decide what to show after an AI response
 function presentAIResult(parsed, fallbackTitle) {
   if (!parsed) {
-    showWarningDialog(aiWarningTitle("parse"), "The AI returned a response I couldn't parse as JSON. The model may be misconfigured or overloaded — try again or switch model.");
+    showWarningDialog(
+      aiWarningTitle("parse"),
+      "The AI returned a response I couldn't parse as JSON. The model may be misconfigured or overloaded — try again or switch model.",
+      "PARSE_ERROR"
+    );
     return;
   }
 
@@ -5835,7 +5953,11 @@ function askAICustomAction(prompt, contextLabel) {
       const text = await callAI(action, contextLabel);
       hideThinkingToast();
       if (!text || !text.trim()) {
-        showWarningDialog(aiWarningTitle("empty"), "The AI returned an empty response. The model may be overloaded — try again.");
+        showWarningDialog(
+          aiWarningTitle("empty"),
+          "The AI returned an empty response. The model may be overloaded — try again.",
+          "EMPTY_RESPONSE"
+        );
       } else {
         const parsed = parseAIResult(text);
         presentAIResult(parsed, "Custom Choice");
@@ -5843,8 +5965,12 @@ function askAICustomAction(prompt, contextLabel) {
     } catch (err) {
       console.error(err);
       hideThinkingToast();
-      const kind = classifyAIError(err);
-      showWarningDialog(aiWarningTitle(kind), err.message || "Reaching the AI failed unexpectedly.");
+      const info = classifyAIError(err);
+      showWarningDialog(
+        aiWarningTitle(info.kind),
+        err.message || "Reaching the AI failed unexpectedly.",
+        info.code
+      );
     }
     render();
   };
