@@ -460,6 +460,98 @@
     margin-left: 8px;
     vertical-align: 2px;
   }
+
+  /* AI THINKING TOAST — fixed at bottom, white bg, square corners, shadow, ring */
+  .ai-thinking-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    background: #fff;
+    color: #222;
+    padding: 14px 22px 14px 18px;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.22);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    z-index: 3000;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid #e0e0e0;
+    /* explicitly square — no rounded corners */
+    border-radius: 0;
+    animation: thinkingSlideIn 0.18s ease-out;
+  }
+  @keyframes thinkingSlideIn {
+    from { opacity: 0; transform: translate(-50%, 10px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+  }
+  .ai-thinking-ring {
+    width: 22px;
+    height: 22px;
+    border: 3px solid #ddd;
+    border-top-color: #7e3ec7;
+    border-radius: 50%;
+    animation: thinkingSpin 0.9s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes thinkingSpin {
+    to { transform: rotate(360deg); }
+  }
+  .ai-thinking-label::after {
+    content: "...";
+    display: inline-block;
+    width: 14px;
+    text-align: left;
+    animation: thinkingDots 1.2s steps(4, end) infinite;
+  }
+  @keyframes thinkingDots {
+    0%   { content: ""; }
+    25%  { content: "."; }
+    50%  { content: ".."; }
+    75%  { content: "..."; }
+    100% { content: ""; }
+  }
+
+  /* WARNING DIALOG — uses the existing dialog scaffold but paints the
+     header red and shows a triangle icon. */
+  .dialog-overlay.warning .dialog-header {
+    background: linear-gradient(180deg, #c83333, #9a2424);
+    color: #fff;
+    border-bottom: 3px solid #762020;
+  }
+  .warning-icon-banner {
+    text-align: center;
+    margin: 18px 0 10px;
+    color: #c83333;
+  }
+  .warning-icon-banner svg {
+    width: 48px;
+    height: 48px;
+    stroke-width: 2;
+  }
+  .warning-msg {
+    text-align: center;
+    font-size: 14px;
+    line-height: 1.55;
+    color: #333;
+    padding: 0 18px 18px;
+  }
+  .warning-dismiss-btn {
+    display: block;
+    margin: 0 auto 18px;
+    background: #c83333;
+    color: #fff;
+    border: none;
+    padding: 10px 32px;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .warning-dismiss-btn:hover { background: #a92828; }
   .form-section button {
     padding: 10px 14px;
     border: none;
@@ -1190,6 +1282,6 @@
   <div class="dlg-hint" id="dialogHint" style="display:none;">click anywhere to leave</div>
 </div>
 
-<script src="function.js?v=23"></script>
+<script src="function.js?v=25"></script>
 </body>
 </html>
