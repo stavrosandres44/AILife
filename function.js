@@ -4520,7 +4520,7 @@ function viewMenu() {
     }
 
     // === Send Feedback ===
-    const FEEDBACK_EMAIL = "stavroselpro@gmail.com"; // CHANGE this to your real email
+    const FEEDBACK_EMAIL = "stavrosandres4@gmail.com"; // CHANGE this to your real email
     const secFb = document.createElement("div");
     secFb.className = "form-section";
     secFb.innerHTML = `<h4>📨 Send Feedback</h4>
