@@ -301,11 +301,39 @@
     position: fixed;
     inset: 0;
     background: #fafafa;
-    display: none;
+    display: flex;
     flex-direction: column;
     z-index: 50;
+    /* Hidden state: off-screen to the right, allows entrance animation */
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform 0.22s ease-out, visibility 0s linear 0.22s;
+    will-change: transform;
   }
-  .subview.show { display: flex; }
+  .subview.show {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.22s ease-out, visibility 0s linear 0s;
+  }
+  /* When going BACK to a parent view: parent slides in from the left
+     instead of the right. Set the .from-left modifier briefly on show. */
+  .subview.from-left {
+    transform: translateX(-100%);
+  }
+  .subview.from-left.show {
+    transform: translateX(0);
+  }
+  /* Exit-to-left: when we navigate forward into a child view, the old
+     subview slides out to the left. Used only briefly during the transition. */
+  .subview.exiting-left {
+    transform: translateX(-100%);
+    transition: transform 0.22s ease-out;
+  }
+  /* Exit-to-right: when we navigate back, current view slides out to the right. */
+  .subview.exiting-right {
+    transform: translateX(100%);
+    transition: transform 0.22s ease-out;
+  }
 
   .subview-header {
     background: #336089;
@@ -917,16 +945,19 @@
 
   .dialog {
     background: #fff;
-    /* Adaptive width — starts at a compact size, can grow to fit a long
-       AI response, capped at a comfortable max so lines don't get too long. */
-    width: max-content;
-    min-width: 280px;
-    max-width: min(560px, calc(100vw - 32px));
+    /* Horizontal width is CONSISTENT — every dialog is exactly 420px on desktop.
+       Vertical height ADAPTS to content: dialogs grow taller as content grows.
+       Inner scroll only kicks in when content would exceed 90vh. */
+    width: 420px;
+    max-width: calc(100vw - 32px);
     border-radius: 2px;
     overflow: hidden;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     cursor: default;
     animation: dialogPop 0.18s ease-out;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
   }
   @keyframes dialogPop {
     from { opacity: 0; transform: scale(0.92) translateY(8px); }
@@ -940,23 +971,20 @@
     font-weight: 700;
     font-size: 16px;
     letter-spacing: 0.3px;
+    flex-shrink: 0;
   }
   .dialog-body {
     padding: 18px 18px 20px;
     font-size: 14.5px;
     line-height: 1.55;
     color: #222;
-    /* Adaptive content width — narration wraps naturally between min/max. */
-    min-width: 280px;
-    max-width: 560px;
-    max-height: 70vh;
-    overflow-y: auto;
-    /* `width: max-content` on the body lets it expand to fit a long line
-       up to max-width, while the dialog wrapper inherits that width. */
-    width: max-content;
     box-sizing: border-box;
+    /* Body grows with content; only scrolls when it bumps into the 90vh cap. */
+    flex: 0 1 auto;
+    overflow-y: auto;
+    min-height: 0;
   }
-  /* Narration lines wrap naturally within the body's max-width */
+  /* Narration wraps naturally inside the fixed-width body */
   .dialog-body .narration {
     margin-bottom: 16px;
     word-break: break-word;
@@ -1520,6 +1548,6 @@
   <div class="dlg-hint" id="dialogHint" style="display:none;">click anywhere to leave</div>
 </div>
 
-<script src="function.js?v=110"></script>
+<script src="function.js?v=111"></script>
 </body>
 </html>
