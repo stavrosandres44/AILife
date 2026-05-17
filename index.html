@@ -329,6 +329,25 @@
     transition: transform 0.22s ease-out, visibility 0s linear 0s;
   }
 
+  /* Ghost subview — a snapshot of the previous subview that slides out while
+     the real subview slides in. Same layout as .subview but always visible
+     until the JS removes it after the transition. */
+  .subview-ghost {
+    position: fixed;
+    inset: 0;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    z-index: 49; /* below the real subview by one so the new view appears on top */
+    transform: translate(0, 0);
+    visibility: visible;
+    pointer-events: none;
+    will-change: transform;
+  }
+  .subview-ghost.exiting-right  { transform: translateX(100%);  transition: transform 0.22s ease-out; }
+  .subview-ghost.exiting-left   { transform: translateX(-100%); transition: transform 0.22s ease-out; }
+  .subview-ghost.exiting-bottom { transform: translateY(100%);  transition: transform 0.22s ease-out; }
+
   .subview-header {
     background: #336089;
     color: #fff;
@@ -1316,7 +1335,16 @@
     font-weight: 500;
     letter-spacing: 0.5px;
     opacity: 0.85;
+    margin-bottom: 6px;
+  }
+  .click-to-play .ctp-version {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    opacity: 0.55;
     margin-bottom: 22px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    text-transform: uppercase;
   }
   .click-to-play .ctp-disclaimer {
     font-size: 12px;
@@ -1456,6 +1484,7 @@
   <div class="ctp-inner">
     <div class="ctp-title">AILife</div>
     <div class="ctp-tagline">A Dynamic AI-Driven Life Simulator</div>
+    <div class="ctp-version">v1.0 &middot; build 114</div>
     <div class="ctp-disclaimer">
       AILife is an independent fan-made remake. It is <strong>not affiliated with, endorsed by, or made by</strong>
       BitLife or Candywriter LLC. All trademarks belong to their respective owners. AILife strips all
@@ -1568,6 +1597,6 @@
   <div class="dlg-hint" id="dialogHint" style="display:none;">click anywhere to leave</div>
 </div>
 
-<script src="function.js?v=113"></script>
+<script src="function.js?v=114"></script>
 </body>
 </html>
