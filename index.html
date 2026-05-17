@@ -304,36 +304,28 @@
     display: flex;
     flex-direction: column;
     z-index: 50;
-    /* Hidden state: off-screen to the right, allows entrance animation */
-    transform: translateX(100%);
+    /* Default hidden state: off-screen below (matches the slide-UP open). */
+    transform: translateY(100%);
     visibility: hidden;
     transition: transform 0.22s ease-out, visibility 0s linear 0.22s;
     will-change: transform;
   }
   .subview.show {
-    transform: translateX(0);
+    transform: translate(0, 0);
     visibility: visible;
     transition: transform 0.22s ease-out, visibility 0s linear 0s;
   }
-  /* When going BACK to a parent view: parent slides in from the left
-     instead of the right. Set the .from-left modifier briefly on show. */
-  .subview.from-left {
-    transform: translateX(-100%);
-  }
-  .subview.from-left.show {
-    transform: translateX(0);
-  }
-  /* Exit-to-left: when we navigate forward into a child view, the old
-     subview slides out to the left. Used only briefly during the transition. */
-  .subview.exiting-left {
-    transform: translateX(-100%);
-    transition: transform 0.22s ease-out;
-  }
-  /* Exit-to-right: when we navigate back, current view slides out to the right. */
-  .subview.exiting-right {
-    transform: translateX(100%);
-    transition: transform 0.22s ease-out;
-  }
+
+  /* Direction modifiers — set BEFORE .show to position the off-screen start,
+     then .show animates to translate(0,0). */
+  .subview.from-right  { transform: translateX(100%);  }
+  .subview.from-left   { transform: translateX(-100%); }
+  .subview.from-bottom { transform: translateY(100%);  }
+
+  /* Exiting variants — applied when the view should leave the screen. */
+  .subview.exiting-right  { transform: translateX(100%);  transition: transform 0.22s ease-out; }
+  .subview.exiting-left   { transform: translateX(-100%); transition: transform 0.22s ease-out; }
+  .subview.exiting-bottom { transform: translateY(100%);  transition: transform 0.22s ease-out; }
 
   .subview-header {
     background: #336089;
@@ -408,6 +400,31 @@
     flex-shrink: 0;
   }
   .row-item .row-arrow svg { width: 22px; height: 22px; stroke-width: 2.2; }
+
+  /* Menu category cards — same row-item base, but with a leading icon */
+  .row-item.menu-category {
+    align-items: center;
+    gap: 14px;
+  }
+  .row-item.menu-category .cat-icon {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f0f3f7;
+    border-radius: 50%;
+    color: #336089;
+  }
+  .row-item.menu-category .cat-icon svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 2.2;
+  }
+  .row-item.menu-category:hover .cat-icon {
+    background: #e3eaf2;
+  }
   .row-item:hover .row-arrow { color: #888; }
 
   .section-label {
@@ -1457,6 +1474,7 @@
 <audio id="snd-aftermath"     src="aftermath.wav"     preload="auto"></audio>
 <audio id="snd-dialog"        src="dialog.wav"        preload="auto"></audio>
 <audio id="snd-death"         src="death.wav"         preload="auto"></audio>
+<audio id="snd-clickOption"   src="clickOption.wav"   preload="auto"></audio>
 
 <!-- LOADING SPLASH -->
 <div class="loading-splash" id="loadingSplash">Loading game data...</div>
@@ -1548,6 +1566,6 @@
   <div class="dlg-hint" id="dialogHint" style="display:none;">click anywhere to leave</div>
 </div>
 
-<script src="function.js?v=111"></script>
+<script src="function.js?v=112"></script>
 </body>
 </html>
