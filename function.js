@@ -5,6 +5,7 @@
 
 let GAME = null;          // populated from game.json
 let State = null;
+let AI_CONFIG = null;
 
 /* ============ HELPERS ============ */
 const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -6041,6 +6042,8 @@ Rules:
 - addBadge ONLY for major milestones (first kiss, graduated, became rich, near-death).
 - Be concise. Don't repeat narration in aftermath — let aftermath add reflection.
 - If a request asks for something you won't produce, return {"refusal":"<short reason>"} — do NOT write a moralizing narration or break character.
+- Create scenarios relevant to the user's age
+- Do not reutilize scenarios or dialog choices
 
 Story hooks (use these in "special" to drive real game state, not just narration):
 - "newPartner"       — start a new romantic relationship
@@ -6060,12 +6063,13 @@ Story hooks (use these in "special" to drive real game state, not just narration
 - "illness_alzheimers" — develop Alzheimer's
 - "badge_<id>"       — grant a specific preset badge
 
-You may invent dramatic events: a family member dying, an accident, a windfall, a betrayal, a reunion. Use specials to make these events have real consequences in the game state — not just narration.`;
+You may invent dramatic events: a family member dying, an accident, a windfall, a betrayal, a reunion. Use specials to make these events have real consequences in the game state — not just narration, you can generate absolutely
+everything that is within your guidelines, and follows the rujes.`;
 
   // Output effort — controls verbosity of narration and aftermath
   const effortDirective = {
-    short:  `Output Effort: SHORTER MESSAGES. Keep narration to 1 brief sentence and aftermath to 1 sentence. Be terse.`,
-    medium: `Output Effort: MIDDLE-SIZED MESSAGES. Narration should be 2-3 sentences; aftermath 1-2 sentences. Balance brevity and texture.`,
+    short:  `Output Effort: SHORTER MESSAGES. Keep narration to 1 brief sentence and aftermath to 1 sentence. Be terse, don't think.`,
+    medium: `Output Effort: MIDDLE-SIZED MESSAGES. Narration should be 2-3 sentences; aftermath 1-2 sentences. Balance brevity and texture, Think a little.`,
     long:   `Output Effort: LONGER MESSAGES. Narration should be 4-6 vivid sentences; aftermath 2-3 sentences of reflection. Take your time — but stay in scene, don't pad.`,
   }[State.aiOutputEffort || "medium"];
 
