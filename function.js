@@ -868,12 +868,39 @@ let _suppressMenuSound = false;
 function showSubview(title, builder, opts) {
   if (!_suppressMenuSound) playSound("menu");
   if (!opts || !opts.preserveStack) _subviewBackStack = [];
-  SUBVIEW.title.textContent = title;
-  SUBVIEW.body.innerHTML = "";
-  builder(SUBVIEW.body);
-  SUBVIEW.el.classList.add("show");
-  SUBVIEW.body.scrollTop = 0;
-  if (window.lucide) lucide.createIcons();
+
+  // Slide animation direction:
+  //   forward (default) — view slides in from the RIGHT
+  //   back   (_suppressMenuSound is true) — view slides in from the LEFT
+  const fromLeft = _suppressMenuSound;
+
+  const buildAndShow = () => {
+    SUBVIEW.title.textContent = title;
+    SUBVIEW.body.innerHTML = "";
+    builder(SUBVIEW.body);
+    SUBVIEW.body.scrollTop = 0;
+    if (window.lucide) lucide.createIcons();
+    // Position off-screen on the correct side, then animate in
+    SUBVIEW.el.classList.remove("exiting-left", "exiting-right", "show", "from-left");
+    if (fromLeft) SUBVIEW.el.classList.add("from-left");
+    // Force a reflow so the browser registers the off-screen position
+    // before we add `.show` and trigger the transition.
+    // eslint-disable-next-line no-unused-expressions
+    void SUBVIEW.el.offsetWidth;
+    SUBVIEW.el.classList.add("show");
+  };
+
+  // If a subview is already open, slide it out first, then build the new one.
+  if (SUBVIEW.el.classList.contains("show")) {
+    SUBVIEW.el.classList.remove("show");
+    // Force the OLD content to slide out toward the OPPOSITE direction of
+    // the new entrance. Forward navigation: old goes left, new comes from right.
+    // Back navigation: old goes right, new comes from left.
+    SUBVIEW.el.classList.add(fromLeft ? "exiting-right" : "exiting-left");
+    setTimeout(buildAndShow, 220);
+  } else {
+    buildAndShow();
+  }
 }
 function pushSubview(title, builder, parentFn) {
   _subviewBackStack.push(parentFn);
@@ -889,7 +916,12 @@ function closeSubview() {
     try { parent(); } finally { _suppressMenuSound = false; }
     return;
   }
+  // Top-level close: slide out to the right
   SUBVIEW.el.classList.remove("show");
+  SUBVIEW.el.classList.add("exiting-right");
+  setTimeout(() => {
+    SUBVIEW.el.classList.remove("exiting-right", "exiting-left", "from-left");
+  }, 230);
 }
 
 /* ============ DIALOG ============ */
@@ -989,6 +1021,13 @@ function showAftermath(title, text, opts) {
     DLG.hint.textContent = "Tap anywhere to continue";
   }
   DLG.hint.style.display = "block";
+  // Defensive: if a previous aftermath handler is still bound, drop it before
+  // adding a new one. Otherwise an old listener could fire on the same click
+  // that opens this new dialog and instantly dismiss it.
+  if (aftermathHandler) {
+    DLG.overlay.removeEventListener("click", aftermathHandler);
+    aftermathHandler = null;
+  }
   DLG.overlay.classList.add("show", "aftermath");
   if (window.lucide) lucide.createIcons();
 
@@ -997,7 +1036,11 @@ function showAftermath(title, text, opts) {
     if (opts.onClose) opts.onClose();
     render();
   };
-  setTimeout(() => DLG.overlay.addEventListener("click", aftermathHandler), 50);
+  // 250ms delay — long enough that the click that *opened* this aftermath
+  // (e.g. the click that picked an option in showOptions) has fully bubbled
+  // and won't accidentally trigger dismissal. Audio sync now plays at the
+  // same moment via playSoundSynced so the sound and dialog land together.
+  setTimeout(() => DLG.overlay.addEventListener("click", aftermathHandler), 250);
 }
 
 // OPTIONS — green stacked buttons + Custom Choice (AI)
@@ -3709,19 +3752,31 @@ function showTombstone(cause, isSurrender) {
 
 /* ============ EVENT TRIGGER ============ */
 function triggerYearEvent(age) {
-  // AI Mode: every year-event is AI-generated, no preset events
+  // AI Mode: every year produces an AI event. Show the thinking toast
+  // SYNCHRONOUSLY here so that even before the async call resolves, the
+  // user sees something happening — and `advanceTime` will block subsequent
+  // clicks because the toast exists.
   if (State.aiMode && State.apiKey) {
-    // ~50% chance of an AI event each year (keeps things from spamming the API)
-    if (Math.random() < 0.5) triggerAIEvent(age);
+    // Show toast immediately so the UI feels responsive AND so the
+    // "is the AI thinking?" guard in advanceTime catches the second click.
+    showThinkingToast("Generating event");
+    triggerAIEvent(age);
     return;
   }
 
-  // Branching events (with choices) — show a dialog
-  if (Math.random() < 0.92 && tryBranchingEvent(age)) return;
-  // Narrative events — log silently, no dialog (bitlife-style)
+  // Classic mode — try a branching dialog event first
+  if (tryBranchingEvent(age)) return;
+
+  // Fall back to a narrative event. If the narrative pool is empty for this
+  // age band, generate a universal filler so the player ALWAYS sees something.
   const pool = GAME.narrativeEvents.filter(e => age >= e.minAge && age <= e.maxAge);
-  if (pool.length === 0) return;
-  if (Math.random() < 0.25) return;
+  if (pool.length === 0) {
+    // Last-resort branching retry
+    if (tryBranchingEvent(age)) return;
+    // Universal filler — guarantee a visible log entry every single year
+    logEvent(universalFiller(age));
+    return;
+  }
   const ev = pick(pool);
   const variantText = pick(ev.variants);
   if (ev.stats) applyStats(ev.stats);
@@ -3732,6 +3787,18 @@ function triggerYearEvent(age) {
     State.friends.push({ name, gender: g, level: 70 });
   }
   logEvent(variantText);
+}
+
+// Last-resort filler so every click produces a visible log line. Tailored
+// loosely to age band so it doesn't feel out of place.
+function universalFiller(age) {
+  if (age < 5)  return pick(["I played quietly with my toys.", "I napped through most of the day.", "I learned a new word.", "I refused to eat dinner.", "I splashed in the bath."]);
+  if (age < 12) return pick(["School was uneventful.", "I rode my bike around the block.", "I watched cartoons all afternoon.", "I drew pictures in my notebook.", "I helped mom in the kitchen."]);
+  if (age < 18) return pick(["Another day at school.", "I scrolled my phone for too long.", "I hung out with friends after class.", "I procrastinated on homework again.", "I listened to music alone in my room."]);
+  if (age < 30) return pick(["A quiet year. Nothing notable.", "I focused on work and routine.", "I caught up on some reading.", "I tried a new restaurant downtown.", "Another year, more or less the same."]);
+  if (age < 50) return pick(["The year passed quickly.", "I kept my head down and worked.", "Just a normal year.", "I picked up a small hobby.", "Quiet year. Felt my age."]);
+  if (age < 70) return pick(["A slow, ordinary year.", "I read more than usual.", "I watched the seasons change.", "Nothing dramatic happened.", "I appreciated the quiet."]);
+  return pick(["Another quiet year.", "I rested. A lot.", "Time moved slowly.", "The garden bloomed again.", "Nothing much happened, and that was fine."]);
 }
 
 function evalRequirement(req) {
@@ -6390,10 +6457,43 @@ function askAICustomAction(prompt, contextLabel, extraContext) {
 }
 
 // AI Mode: ask the AI for a random life event this year, optionally with choices.
+// NOTE: the thinking toast is shown SYNCHRONOUSLY by triggerYearEvent before
+// this async function is even called — this ensures advanceTime can detect
+// the toast and block double-clicks from firing extra years.
 async function triggerAIEvent(age) {
-  showThinkingToast("Generating event");
   try {
-    const userPrompt = `Invent a single specific life event for me this year. Make it varied, surprising, and grounded in my circumstances. Include a "category" (e.g. "family", "work", "romance", "tragedy", "windfall", "health", "social", "achievement") that summarizes the theme. Provide a "narration" of what happened. If the event involves a decision, include 2-4 "options" so I can choose. Otherwise omit options. You may also include a "special" field with one of these story hooks to drive real game state: "newPartner", "divorce", "addChild", "newSibling", "addFriend", "die_now", "addiction_alcohol", "addiction_drugs", "addiction_smoking", "raise_small"/"raise_medium"/"raise_big", "demoted", "needTherapy", "pet:dog"/"pet:cat".`;
+    const userPrompt = `Invent a single specific life event for me this year. Make it varied, surprising, and grounded in my circumstances.
+
+MANDATORY structure for AI Mode events — failure to follow this is wrong output:
+- "category": one word (family, work, romance, tragedy, windfall, health, social, achievement, etc.)
+- "body": ONE short sentence that SETS THE SCENE and ENDS AT A DECISION POINT. Never resolve the event in the body.
+- "options": ALWAYS include 2-4 choices. This is non-negotiable for AI Mode events. Even when the event seems unilateral, frame the player's reaction as the choice.
+- Each option has its OWN "narration" (what happens after picking) and OWN "aftermath" (the closing beat).
+- DO NOT put narration or aftermath at the top level when options are present. Only "body" goes there.
+
+Flow the player will see:
+  Year click → "body" appears as a Choice Dialog with the options[] as buttons → player picks → that option's narration logs + that option's aftermath dialog shows.
+
+Correct examples:
+  ✓ body: "I bumped into an old friend at the grocery store. They asked if I wanted to grab coffee."
+    options: [
+      {label: "Yes, catch up over coffee", narration: "...", aftermath: "..."},
+      {label: "Politely decline — I'm busy", narration: "...", aftermath: "..."},
+      {label: "Ask for their number to plan later", narration: "...", aftermath: "..."}
+    ]
+
+  ✓ body: "My grandmother died unexpectedly. The funeral is in two days."
+    options: [
+      {label: "Fly home for the funeral", narration: "...", aftermath: "...", special: "..."},
+      {label: "Grieve privately at home", narration: "...", aftermath: "..."},
+      {label: "Take a week off to be with family", narration: "...", aftermath: "..."}
+    ]
+
+Wrong (do not produce):
+  ✗ {narration: "I bumped into an old friend and we had coffee", aftermath: "..."} — no options, event self-resolves. Bad.
+  ✗ {body: "Friend invited me to coffee. I went and we caught up.", options: [...]} — body already resolved the event. Bad.
+
+You may include "special" with one of: "newPartner", "divorce", "addChild", "newSibling", "addFriend", "die_now", "addiction_alcohol", "addiction_drugs", "addiction_smoking", "raise_small"/"raise_medium"/"raise_big", "demoted", "needTherapy", "pet:dog"/"pet:cat". Put specials on individual options when the choice triggers them, not at the top level.`;
     const text = await callAI(userPrompt, `year_event_age_${age}`);
     hideThinkingToast();
     if (!text || !text.trim()) {
@@ -6413,6 +6513,33 @@ async function triggerAIEvent(age) {
       );
       return;
     }
+
+    // AI mode contract: yearly events MUST be choice dialogs. If the model
+    // skipped options[] and just dumped narration/aftermath, synthesize a
+    // single-option "Continue" choice so the player still sees the proper
+    // Click → Choice → Aftermath flow rather than just an aftermath.
+    if (!Array.isArray(parsed.options) || parsed.options.length === 0) {
+      if (!parsed.refusal) {
+        const body = parsed.body || parsed.narration || "Something happened this year.";
+        parsed.body = body;
+        parsed.options = [{
+          label: "Continue",
+          narration: parsed.narration || "",
+          aftermath: parsed.aftermath || parsed.narration || "",
+          stats: parsed.stats,
+          money: parsed.money,
+          special: parsed.special,
+          tone: parsed.logKind === "bad" ? "bad" : parsed.logKind === "good" ? "good" : "normal",
+        }];
+        // Strip the top-level resolution fields now that they're moved to the option
+        delete parsed.narration;
+        delete parsed.aftermath;
+        delete parsed.stats;
+        delete parsed.money;
+        delete parsed.special;
+      }
+    }
+
     presentAIResult(parsed, null);  // null → use category from parsed
     render();
   } catch (err) {
@@ -6443,7 +6570,34 @@ function newLife() {
 }
 
 function bind() {
-  DOM.dayBtn.onclick = () => { playSound("age"); advanceTime(); };
+  // Day-button click handler with two guarantees:
+  //   1. Lightweight debounce so a double-tap doesn't fire two years.
+  //   2. After advanceTime returns, verify SOMETHING happened (a log entry
+  //      was added, a dialog is open, or the AI thinking toast is showing).
+  //      If nothing visible happened, force a "quiet year" log so the click
+  //      always produces feedback.
+  let _dayClickAt = 0;
+  let _logSeqAtClick = 0;
+  DOM.dayBtn.onclick = () => {
+    const now = Date.now();
+    if (now - _dayClickAt < 250) return; // de-bounce double-clicks
+    _dayClickAt = now;
+    _logSeqAtClick = State.log ? State.log.length : 0;
+    playSound("age");
+    advanceTime();
+    // After the tick: if no dialog opened, no thinking toast, no new log,
+    // produce a quiet-year log so the click never feels dead.
+    setTimeout(() => {
+      const dialogOpen = DLG.overlay.classList.contains("show");
+      const thinking   = !!document.getElementById("aiThinkingToast");
+      const subviewOn  = SUBVIEW && SUBVIEW.el && SUBVIEW.el.classList.contains("show");
+      const newLogs    = (State.log ? State.log.length : 0) > _logSeqAtClick;
+      if (!dialogOpen && !thinking && !subviewOn && !newLogs && State.alive) {
+        logEvent(universalFiller(State.age));
+        render();
+      }
+    }, 80);
+  };
   // Tap-to-toggle the QoL tooltip on mobile (hover handles desktop via CSS)
   if (DOM.personaRight) {
     DOM.personaRight.addEventListener("click", (e) => {
