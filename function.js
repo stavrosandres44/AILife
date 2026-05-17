@@ -56,7 +56,7 @@ function interpolate(s) {
 }
 
 /* ============ SOUND SYSTEM ============ */
-const SOUND_IDS = ["menu","back","choiceselect","aibutton","age","achievement","aftermath","dialog","death"];
+const SOUND_IDS = ["menu","back","choiceselect","aibutton","age","achievement","aftermath","dialog","death","clickOption"];
 const SOUNDS = {};
 let _audioUnlocked = false;
 let _audioVolume = 0.7;
@@ -75,6 +75,7 @@ const SOUND_COOLDOWNS = {
   age:          200,  // age-up
   aibutton:     150,
   death:        2000, // death toll — long, prevents accidental retrigger
+  clickOption:  100,  // category card tap
 };
 const _lastPlayedAt = {};       // soundId -> ms timestamp
 let _lastAnyPlayedAt = 0;       // global last-play timestamp
@@ -869,10 +870,18 @@ function showSubview(title, builder, opts) {
   if (!_suppressMenuSound) playSound("menu");
   if (!opts || !opts.preserveStack) _subviewBackStack = [];
 
-  // Slide animation direction:
-  //   forward (default) — view slides in from the RIGHT
-  //   back   (_suppressMenuSound is true) — view slides in from the LEFT
-  const fromLeft = _suppressMenuSound;
+  // Animation direction:
+  //   - Opening a top-level subview from the main game view → slide UP
+  //   - Pushing INTO a sub-view (already inside a subview) → slide RIGHT
+  //   - Going BACK to a parent subview → slide LEFT (handled by _suppressMenuSound)
+  let direction;
+  if (_suppressMenuSound) {
+    direction = "from-left";   // back navigation
+  } else if (opts && opts.preserveStack) {
+    direction = "from-right";  // pushSubview into a child
+  } else {
+    direction = "from-bottom"; // top-level open from main game
+  }
 
   const buildAndShow = () => {
     SUBVIEW.title.textContent = title;
@@ -881,22 +890,22 @@ function showSubview(title, builder, opts) {
     SUBVIEW.body.scrollTop = 0;
     if (window.lucide) lucide.createIcons();
     // Position off-screen on the correct side, then animate in
-    SUBVIEW.el.classList.remove("exiting-left", "exiting-right", "show", "from-left");
-    if (fromLeft) SUBVIEW.el.classList.add("from-left");
-    // Force a reflow so the browser registers the off-screen position
-    // before we add `.show` and trigger the transition.
+    SUBVIEW.el.classList.remove("exiting-left", "exiting-right", "exiting-bottom", "show", "from-left", "from-right", "from-bottom");
+    SUBVIEW.el.classList.add(direction);
+    // Force a reflow so the off-screen position is registered before .show
     // eslint-disable-next-line no-unused-expressions
     void SUBVIEW.el.offsetWidth;
     SUBVIEW.el.classList.add("show");
   };
 
-  // If a subview is already open, slide it out first, then build the new one.
+  // If a subview is already open, slide it out toward the OPPOSITE direction
+  // of the entrance, then build the new one.
   if (SUBVIEW.el.classList.contains("show")) {
     SUBVIEW.el.classList.remove("show");
-    // Force the OLD content to slide out toward the OPPOSITE direction of
-    // the new entrance. Forward navigation: old goes left, new comes from right.
-    // Back navigation: old goes right, new comes from left.
-    SUBVIEW.el.classList.add(fromLeft ? "exiting-right" : "exiting-left");
+    const exit = direction === "from-left"   ? "exiting-right"
+               : direction === "from-right"  ? "exiting-left"
+               : "exiting-bottom";
+    SUBVIEW.el.classList.add(exit);
     setTimeout(buildAndShow, 220);
   } else {
     buildAndShow();
@@ -910,17 +919,17 @@ function closeSubview() {
   playSound("back");
   if (_subviewBackStack.length > 0) {
     const parent = _subviewBackStack.pop();
-    // Going back to a parent view — silence the parent's menu.wav so it
-    // doesn't collide with the back.wav we just played.
+    // Going back — silence menu.wav (so back.wav plays alone) AND mark
+    // the navigation as "back" so showSubview slides from the left.
     _suppressMenuSound = true;
     try { parent(); } finally { _suppressMenuSound = false; }
     return;
   }
-  // Top-level close: slide out to the right
+  // Top-level close: slide back DOWN (inverse of the slide-up open).
   SUBVIEW.el.classList.remove("show");
-  SUBVIEW.el.classList.add("exiting-right");
+  SUBVIEW.el.classList.add("exiting-bottom");
   setTimeout(() => {
-    SUBVIEW.el.classList.remove("exiting-right", "exiting-left", "from-left");
+    SUBVIEW.el.classList.remove("exiting-bottom", "exiting-left", "exiting-right", "from-left", "from-right", "from-bottom");
   }, 230);
 }
 
@@ -5433,392 +5442,467 @@ function petActions(p) {
 
 function viewMenu() {
   showSubview("MENU", body => {
-    const sec1 = document.createElement("div");
-    sec1.className = "form-section";
-    sec1.innerHTML = `<h4>About</h4>
-      <div class="info-row"><div>Name</div><div class="v">${State.name}</div></div>
-      <div class="info-row"><div>Age</div><div class="v">${State.age}</div></div>
-      <div class="info-row"><div>Country</div><div class="v">${State.country}</div></div>
-      <div class="info-row"><div>Education</div><div class="v">${State.education}</div></div>`;
-    body.appendChild(sec1);
+    // Category cards. Each is a tappable row that opens a sub-page.
+    const cats = [
+      {
+        title: "Profile & Badges",
+        desc: "Your character info and earned achievements.",
+        icon: "user",
+        builder: () => pushSubview("PROFILE", buildProfileSection, viewMenu),
+      },
+      {
+        title: "AI Configuration",
+        desc: "API key, provider, model, output effort, and AI Mode toggles.",
+        icon: "sparkles",
+        builder: () => pushSubview("AI CONFIGURATION", buildAISection, viewMenu),
+      },
+      {
+        title: "Gameplay",
+        desc: "Realistic Mode, New Life, Copy Story.",
+        icon: "settings-2",
+        builder: () => pushSubview("GAMEPLAY", buildGameplaySection, viewMenu),
+      },
+      {
+        title: "Save Slots",
+        desc: "Manual saves you can return to later.",
+        icon: "save",
+        builder: () => pushSubview("SAVE SLOTS", buildSaveSlotsSection, viewMenu),
+      },
+      {
+        title: "Sync (BETA)",
+        desc: "Back up progress to your account.",
+        icon: "cloud",
+        builder: () => pushSubview("SYNC", buildSyncSection, viewMenu),
+      },
+      {
+        title: "Support & Feedback",
+        desc: "Send feedback, support development on Ko-Fi.",
+        icon: "heart",
+        builder: () => pushSubview("SUPPORT", buildSupportSection, viewMenu),
+      },
+      {
+        title: "About",
+        desc: "Version info and legal.",
+        icon: "info",
+        builder: () => pushSubview("ABOUT", buildAboutSection, viewMenu),
+      },
+    ];
 
-    // BADGES (preset + AI-granted)
-    const badgeSec = document.createElement("div");
-    badgeSec.className = "form-section";
-    const aiBadgeIds = Object.keys(State.aiBadges);
-    const totalBadgeIds = GAME.badges.map(b => b.id).concat(aiBadgeIds);
-    const earned = State.badges.filter(id => totalBadgeIds.includes(id)).length;
-    const totalCount = GAME.badges.length + aiBadgeIds.length;
-    badgeSec.innerHTML = `<h4>🏆 Badges (${earned}/${totalCount})</h4>`;
-    const grid = document.createElement("div");
-    grid.className = "badge-grid";
-    // Preset badges first
-    for (const b of GAME.badges) {
-      const unlocked = State.badges.includes(b.id);
-      const cell = document.createElement("div");
-      cell.className = "badge-cell" + (unlocked ? "" : " locked");
-      cell.title = b.desc;
-      cell.innerHTML = `
-        <div class="b-ico ${unlocked ? "" : "locked"}"><i data-lucide="${unlocked ? b.icon : "lock"}"></i></div>
-        <div class="b-name">${b.name}</div>`;
-      grid.appendChild(cell);
-    }
-    // AI-granted custom badges (always unlocked when they appear)
-    for (const id of aiBadgeIds) {
-      const b = State.aiBadges[id];
-      const cell = document.createElement("div");
-      cell.className = "badge-cell";
-      cell.title = b.desc;
-      cell.innerHTML = `
-        <div class="b-ico ai-badge"><i data-lucide="${b.icon || "sparkles"}"></i></div>
-        <div class="b-name">${b.name}</div>`;
-      grid.appendChild(cell);
-    }
-    badgeSec.appendChild(grid);
-    body.appendChild(badgeSec);
-
-    // AI CONFIG
-    const sec2 = document.createElement("div");
-    sec2.className = "form-section";
-    sec2.innerHTML = `<h4>🤖 AI Configuration</h4>
-      <p>Add an API key to unlock <strong>Custom Choice (AI)</strong> in every dialog. Your key stays in your browser only.</p>
-      <select id="aiProvider">
-        <option value="anthropic" ${State.aiProvider === "anthropic" ? "selected" : ""}>Anthropic (Claude)</option>
-        <option value="openai" ${State.aiProvider === "openai" ? "selected" : ""}>OpenAI (GPT)</option>
-        <option value="gemini" ${State.aiProvider === "gemini" ? "selected" : ""}>Google (Gemini)</option>
-        <option value="grok" ${State.aiProvider === "grok" ? "selected" : ""}>xAI (Grok)</option>
-        <option value="poe" ${State.aiProvider === "poe" ? "selected" : ""}>Poe</option>
-        <option value="openrouter" ${State.aiProvider === "openrouter" ? "selected" : ""}>OpenRouter</option>
-      </select>
-      <input id="aiModel" placeholder="Model (optional - leave blank for default)" value="${State.aiModel}" />
-      <input id="aiKey" type="password" placeholder="API Key" value="${State.apiKey}" />
-      <div class="btn-row">
-        <button class="success" id="saveAI">Save</button>
-        <button class="danger" id="clearAI">Clear</button>
-      </div>
-
-      <div class="form-label">Output Effort</div>
-      <select id="aiOutputEffort">
-        <option value="short"  ${State.aiOutputEffort === "short"  ? "selected" : ""}>Shorter messages</option>
-        <option value="medium" ${(!State.aiOutputEffort || State.aiOutputEffort === "medium") ? "selected" : ""}>Middle-sized messages</option>
-        <option value="long"   ${State.aiOutputEffort === "long"   ? "selected" : ""}>Longer messages</option>
-      </select>
-
-      <div class="form-label">Style (optional)</div>
-      <textarea id="aiStyle" rows="3" placeholder="Tell the model how you want it to write. e.g. 'wry, dry humor', 'literary and reflective', 'gritty and unsentimental', 'lighthearted and playful'.">${escapeHtml(State.aiStyle || "")}</textarea>
-
-      <div class="toggle-row">
-        <div class="toggle-text">
-          <div class="toggle-title">Life Management</div>
-          <div class="toggle-desc">Fade older memories when calling the AI. Cheaper per request, but the AI sees less context.</div>
+    for (const c of cats) {
+      const row = document.createElement("div");
+      row.className = "row-item menu-category";
+      row.innerHTML = `
+        <div class="cat-icon"><i data-lucide="${c.icon}"></i></div>
+        <div class="row-text">
+          <div class="row-title">${c.title}</div>
+          <div class="row-desc">${c.desc}</div>
         </div>
-        <input type="checkbox" class="toggle" id="lifeManagement" ${State.lifeManagement ? "checked" : ""}>
-      </div>
-      <div class="toggle-row">
-        <div class="toggle-text">
-          <div class="toggle-title">AI Mode</div>
-          <div class="toggle-desc">Replace preset yearly events with AI-generated ones. Requires an API key.</div>
-        </div>
-        <input type="checkbox" class="toggle" id="aiMode" ${State.aiMode ? "checked" : ""}>
-      </div>
-      <div class="toggle-row">
-        <div class="toggle-text">
-          <div class="toggle-title">Realistic Mode</div>
-          <div class="toggle-desc">Advance time in hours, days, or weeks instead of full years. You will need to have a real dedication to keep going, but you'll get lots of events in your life.</div>
-        </div>
-        <input type="checkbox" class="toggle" id="realisticMode" ${State.realisticMode ? "checked" : ""}>
-      </div>`;
-    body.appendChild(sec2);
-    sec2.querySelector("#saveAI").onclick = () => {
-      State.apiKey    = sec2.querySelector("#aiKey").value.trim();
-      State.aiModel   = sec2.querySelector("#aiModel").value.trim();
-      State.aiProvider= sec2.querySelector("#aiProvider").value;
-      localStorage.setItem("bitlife_api_key", State.apiKey);
-      localStorage.setItem("bitlife_ai_model", State.aiModel);
-      localStorage.setItem("bitlife_ai_provider", State.aiProvider);
-      showAftermath("Saved","AI settings saved.");
-    };
-    // Auto-persist provider as soon as the user switches it (so settings
-    // survive even if the user forgets to click Save).
-    sec2.querySelector("#aiProvider").onchange = (e) => {
-      State.aiProvider = e.target.value;
-      localStorage.setItem("bitlife_ai_provider", e.target.value);
-    };
-    sec2.querySelector("#aiModel").oninput = (e) => {
-      State.aiModel = e.target.value.trim();
-      localStorage.setItem("bitlife_ai_model", State.aiModel);
-    };
-    sec2.querySelector("#aiKey").oninput = (e) => {
-      State.apiKey = e.target.value.trim();
-      localStorage.setItem("bitlife_api_key", State.apiKey);
-    };
-    // Output Effort — short / medium / long messages
-    sec2.querySelector("#aiOutputEffort").onchange = (e) => {
-      State.aiOutputEffort = e.target.value;
-      localStorage.setItem("bitlife_ai_output_effort", e.target.value);
-    };
-    // Style — free-form note appended to the system prompt
-    sec2.querySelector("#aiStyle").oninput = (e) => {
-      State.aiStyle = e.target.value;
-      localStorage.setItem("bitlife_ai_style", e.target.value);
-    };
-    sec2.querySelector("#clearAI").onclick = () => {
-      State.apiKey = ""; State.aiModel = ""; State.aiProvider = "anthropic";
-      State.aiOutputEffort = "medium"; State.aiStyle = "";
-      localStorage.removeItem("bitlife_api_key");
-      localStorage.removeItem("bitlife_ai_model");
-      localStorage.removeItem("bitlife_ai_provider");
-      localStorage.removeItem("bitlife_ai_output_effort");
-      localStorage.removeItem("bitlife_ai_style");
-      viewMenu();
-    };
-    sec2.querySelector("#lifeManagement").onchange = (e) => {
-      State.lifeManagement = e.target.checked;
-      localStorage.setItem("bitlife_life_management", e.target.checked ? "1" : "0");
-    };
-    sec2.querySelector("#aiMode").onchange = (e) => {
-      State.aiMode = e.target.checked;
-      localStorage.setItem("bitlife_ai_mode", e.target.checked ? "1" : "0");
-      if (e.target.checked && !State.apiKey) {
-        showAftermath("Add a key", "AI Mode needs an API key. Save one above first.");
-      }
-    };
-    sec2.querySelector("#realisticMode").onchange = (e) => {
-      if (e.target.checked) {
-        const ok = confirm("You will need to have a real dedication to keep going, but you'll get lots of events in your life. Enable Realistic Mode?");
-        if (!ok) { e.target.checked = false; return; }
-      }
-      State.realisticMode = e.target.checked;
-      localStorage.setItem("bitlife_realistic_mode", e.target.checked ? "1" : "0");
-      if (e.target.checked) {
-        showAftermath("Realistic Mode On", "Click the main button to choose how much time to advance each click. You can pick between minutes, hours, and days.");
-      }
-      render(); // update day-button label
-    };
-
-    const sec3 = document.createElement("div");
-    sec3.className = "form-section";
-    sec3.innerHTML = `<h4>Game</h4>
-      <div class="btn-row">
-        <button class="danger" id="newLifeBtn">New Life</button>
-        <button id="copyStory">Copy Story</button>
-      </div>`;
-    body.appendChild(sec3);
-    sec3.querySelector("#newLifeBtn").onclick = () => {
-      if (confirm("Abandon this life and start over?")) { newLife(); closeSubview(); }
-    };
-    sec3.querySelector("#copyStory").onclick = () => {
-      const text = State.log.map(e => `[${e.age === 0 ? "Day 1" : `Age ${e.age}`}] ${e.text}`).join("\n");
-      navigator.clipboard.writeText(text).then(() => showAftermath("Copied","Life story copied to clipboard."));
-    };
-
-    // === Save slots (3 manual slots) ===
-    const sec4 = document.createElement("div");
-    sec4.className = "form-section";
-    const fmtTime = (ts) => {
-      if (!ts) return "";
-      const d = new Date(ts);
-      return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    };
-    let slotHtml = `<h4>Save Slots</h4>
-      <div class="save-slots-hint">Auto-save runs every age-up. Use slots to keep up to 3 named saves.</div>`;
-    for (let n = 1; n <= NUM_SLOTS; n++) {
-      const info = slotInfo(n);
-      const label = info
-        ? `${escapeHtml(info.name)}, age ${info.age}${info.alive ? "" : " ✝"} <span class="slot-meta">— ${fmtTime(info.savedAt)}</span>`
-        : `<span class="slot-empty">Empty</span>`;
-      slotHtml += `
-        <div class="save-slot-row">
-          <div class="save-slot-label">Slot ${n}: ${label}</div>
-          <div class="save-slot-actions">
-            <button class="slot-save" data-slot="${n}">Save</button>
-            <button class="slot-load" data-slot="${n}" ${info ? "" : "disabled"}>Load</button>
-            <button class="slot-delete danger" data-slot="${n}" ${info ? "" : "disabled"}>Del</button>
-          </div>
-        </div>`;
+        <i data-lucide="chevron-right" class="row-arrow"></i>`;
+      row.onclick = () => {
+        playSound("clickOption");
+        c.builder();
+      };
+      body.appendChild(row);
     }
-    sec4.innerHTML = slotHtml;
-    body.appendChild(sec4);
-
-    sec4.querySelectorAll(".slot-save").forEach(btn => {
-      btn.onclick = () => {
-        const n = parseInt(btn.dataset.slot, 10);
-        const existing = slotInfo(n);
-        if (existing && !confirm(`Overwrite Slot ${n} (${existing.name}, age ${existing.age})?`)) return;
-        if (saveToSlot(n)) {
-          showAftermath("Saved", `Slot ${n} updated.`, { onClose: () => viewMenu() });
-        } else {
-          showAftermath("Save failed", "Couldn't write to that slot.");
-        }
-      };
-    });
-    sec4.querySelectorAll(".slot-load").forEach(btn => {
-      btn.onclick = () => {
-        const n = parseInt(btn.dataset.slot, 10);
-        const info = slotInfo(n);
-        if (!info) return;
-        if (!confirm(`Load Slot ${n}: ${info.name}, age ${info.age}? Your current life will be replaced.`)) return;
-        if (loadFromSlot(n)) {
-          closeSubview();
-          render();
-          showAftermath("Loaded", `Resumed: ${info.name}, age ${info.age}.`);
-        } else {
-          showAftermath("Load failed", "Couldn't read that slot.");
-        }
-      };
-    });
-    sec4.querySelectorAll(".slot-delete").forEach(btn => {
-      btn.onclick = () => {
-        const n = parseInt(btn.dataset.slot, 10);
-        const info = slotInfo(n);
-        if (!info) return;
-        if (!confirm(`Delete Slot ${n} (${info.name}, age ${info.age})? This can't be undone.`)) return;
-        deleteSlot(n);
-        viewMenu();
-      };
-    });
-
-    // === Google Sync (BETA) ===
-    const secSync = document.createElement("div");
-    secSync.className = "form-section";
-    const linked = !!localStorage.getItem("ailife_account_email");
-    const linkedEmail = localStorage.getItem("ailife_account_email") || "";
-    const lastSync = localStorage.getItem("ailife_last_sync");
-    secSync.innerHTML = `<h4>☁️ Sync progress <span class="beta-badge">BETA</span></h4>
-      <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
-        ${linked
-          ? `Linked as <strong>${linkedEmail}</strong>.`
-          : "Link your account to back up your saves to the cloud."}
-        ${lastSync ? `<br>Last sync: ${new Date(parseInt(lastSync,10)).toLocaleString()}.` : ""}
-      </p>
-      <div class="btn-row">
-        ${linked
-          ? `<button class="success" id="acctPush">Push Save</button>
-             <button id="acctPull">Pull Save</button>
-             <button class="danger" id="acctUnlink">Unlink</button>`
-          : `<button class="success" id="acctLink">Link my account</button>`}
-      </div>`;
-    body.appendChild(secSync);
-
-    if (linked) {
-      secSync.querySelector("#acctPush").onclick = () => {
-        localStorage.setItem("ailife_last_sync", String(Date.now()));
-        showAftermath("Pushed", "Save synced to your account.", { onClose: () => viewMenu() });
-      };
-      secSync.querySelector("#acctPull").onclick = () => {
-        if (!confirm("Pull save from your account? Your current life will be replaced.")) return;
-        localStorage.setItem("ailife_last_sync", String(Date.now()));
-        showAftermath("Pulled", "Save loaded from your account.", { onClose: () => viewMenu() });
-      };
-      secSync.querySelector("#acctUnlink").onclick = () => {
-        if (!confirm("Unlink account? Your saves stay in the cloud but won't sync anymore.")) return;
-        localStorage.removeItem("ailife_account_email");
-        viewMenu();
-      };
-    } else {
-      secSync.querySelector("#acctLink").onclick = () => {
-        // Open the login page. GitHub Pages serves static files only, so
-        // we link to login.html directly (works on any static host).
-        window.location.href = "login.html";
-      };
-    }
-
-    // === Send Feedback ===
-    const FEEDBACK_EMAIL = "stavroselpro@gmail.com"; // CHANGE this to your real email
-    const secFb = document.createElement("div");
-    secFb.className = "form-section";
-    secFb.innerHTML = `<h4>📨 Send Feedback</h4>
-      <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
-        Found a bug, weird AI behavior, or have a feature idea? Tell me about it.
-      </p>
-      <textarea id="fbMessage" placeholder="What's on your mind? Bugs, ideas, feedback…" rows="4"
-                style="width:100%;padding:10px;font-family:inherit;font-size:13px;border:1px solid #d0d0d0;border-radius:6px;resize:vertical;min-height:80px;"></textarea>
-      <div class="btn-row" style="margin-top:8px;">
-        <button class="success" id="fbSend">Send via Email</button>
-        <button id="fbCopy">Copy to Clipboard</button>
-      </div>
-      <p style="font-size:11px;color:#888;margin-top:6px;">
-        Opens your default email app addressed to ${FEEDBACK_EMAIL}. Your current game state is included automatically so I can reproduce issues.
-      </p>`;
-    body.appendChild(secFb);
-
-    // Build the feedback body — message + auto-captured context for repro
-    const buildFeedbackBody = (msg) => {
-      const ctx = [
-        `--- Player feedback ---`,
-        msg || "(no message)",
-        ``,
-        `--- Auto-captured context (please leave attached) ---`,
-        `App version: function.js?v=100`,
-        `Browser:     ${navigator.userAgent}`,
-        `Viewport:    ${window.innerWidth}x${window.innerHeight}`,
-        `Local time:  ${new Date().toLocaleString()}`,
-        ``,
-        `Player:      ${State.firstName || "(unnamed)"}, age ${State.age}, ${State.alive ? "alive" : "deceased"}`,
-        `Country:     ${State.country || "?"}`,
-        `Job:         ${State.job ? State.job.title : (State.inSchool ? "Student" : State.inCollege ? "College student" : "None")}`,
-        `Stats:       mood ${State.stats.mood}, health ${State.stats.health}, smarts ${State.stats.smarts}, looks ${State.stats.looks}`,
-        `Money:       ${money(State.money + State.bank)}`,
-        `Badges:      ${State.badges.length}`,
-        `Log entries: ${State.log.length}`,
-        `AI provider: ${State.aiProvider || "(none)"} (mode=${State.aiMode ? "on" : "off"})`,
-        `Realistic:   ${State.realisticMode ? `on (${State.realisticUnit})` : "off"}`,
-      ].join("\n");
-      return ctx;
-    };
-
-    secFb.querySelector("#fbSend").onclick = () => {
-      const msg = secFb.querySelector("#fbMessage").value.trim();
-      if (!msg) {
-        showAftermath("Empty Feedback", "Type something before sending.");
-        return;
-      }
-      const subject = "AILife Feedback — " + new Date().toISOString().slice(0, 10);
-      const body = buildFeedbackBody(msg);
-      const href = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      // Open in the user's default mail client
-      window.location.href = href;
-    };
-
-    secFb.querySelector("#fbCopy").onclick = async () => {
-      const msg = secFb.querySelector("#fbMessage").value.trim();
-      const body = `To: ${FEEDBACK_EMAIL}\nSubject: AILife Feedback\n\n` + buildFeedbackBody(msg);
-      try {
-        await navigator.clipboard.writeText(body);
-        showAftermath("Copied", "Feedback copied. Paste it into an email to me whenever you can.");
-      } catch (e) {
-        showAftermath("Copy Failed", "Couldn't copy — your browser blocked clipboard access.");
-      }
-    };
-
-    // === Support the developer ===
-    const secCoffee = document.createElement("div");
-    secCoffee.className = "form-section";
-    secCoffee.innerHTML = `<h4>☕ Support</h4>
-      <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
-        AILife is free and ad-free. If you're enjoying it, you can support development on Ko-Fi — it helps keep the lights on.
-      </p>
-      <a href="https://ko-fi.com/stavroselpro" target="_blank" rel="noopener noreferrer" class="kofi-link">
-        ☕ Support on Ko-Fi
-      </a>`;
-    body.appendChild(secCoffee);
-
-    // === About / Legal ===
-    const sec5 = document.createElement("div");
-    sec5.className = "form-section";
-    sec5.innerHTML = `<h4>About</h4>
-      <div class="about-text">
-        <p><strong>AILife</strong> — A Dynamic AI-Driven Life Simulator.</p>
-        <p class="about-disclaimer">
-          AILife is an independent fan-made remake. It is <strong>not affiliated with, endorsed by,
-          or made by</strong> BitLife or Candywriter LLC. All trademarks belong to their respective
-          owners. AILife strips all monetization — no ads, no in-app purchases, no paywalls — and
-          focuses on a dynamic, AI-driven life simulation. Provided as-is, free of charge, for
-          personal use only.
-        </p>
-      </div>`;
-    body.appendChild(sec5);
   });
+}
+
+// === Profile & Badges ===
+function buildProfileSection(body) {
+  const sec1 = document.createElement("div");
+  sec1.className = "form-section";
+  sec1.innerHTML = `<h4>About</h4>
+    <div class="info-row"><div>Name</div><div class="v">${escapeHtml(State.name || "")}</div></div>
+    <div class="info-row"><div>Age</div><div class="v">${State.age}</div></div>
+    <div class="info-row"><div>Country</div><div class="v">${escapeHtml(State.country || "")}</div></div>
+    <div class="info-row"><div>Education</div><div class="v">${escapeHtml(State.education || "")}</div></div>`;
+  body.appendChild(sec1);
+
+  const badgeSec = document.createElement("div");
+  badgeSec.className = "form-section";
+  const aiBadgeIds = Object.keys(State.aiBadges);
+  const totalBadgeIds = GAME.badges.map(b => b.id).concat(aiBadgeIds);
+  const earned = State.badges.filter(id => totalBadgeIds.includes(id)).length;
+  const totalCount = GAME.badges.length + aiBadgeIds.length;
+  badgeSec.innerHTML = `<h4>🏆 Badges (${earned}/${totalCount})</h4>`;
+  const grid = document.createElement("div");
+  grid.className = "badge-grid";
+  for (const b of GAME.badges) {
+    const unlocked = State.badges.includes(b.id);
+    const cell = document.createElement("div");
+    cell.className = "badge-cell" + (unlocked ? "" : " locked");
+    cell.title = b.desc;
+    cell.innerHTML = `
+      <div class="b-ico ${unlocked ? "" : "locked"}"><i data-lucide="${unlocked ? b.icon : "lock"}"></i></div>
+      <div class="b-name">${b.name}</div>`;
+    grid.appendChild(cell);
+  }
+  for (const id of aiBadgeIds) {
+    const b = State.aiBadges[id];
+    const cell = document.createElement("div");
+    cell.className = "badge-cell";
+    cell.title = b.desc || "";
+    cell.innerHTML = `
+      <div class="b-ico ai"><i data-lucide="${b.icon || "sparkles"}"></i></div>
+      <div class="b-name">${b.name}</div>`;
+    grid.appendChild(cell);
+  }
+  badgeSec.appendChild(grid);
+  body.appendChild(badgeSec);
+}
+
+// === AI Configuration ===
+function buildAISection(body) {
+  const sec2 = document.createElement("div");
+  sec2.className = "form-section";
+  sec2.innerHTML = `<h4>🤖 AI Configuration</h4>
+    <p>Add an API key to unlock <strong>Custom Choice (AI)</strong> in every dialog. Your key stays in your browser only.</p>
+    <div class="form-label">Provider</div>
+    <select id="aiProvider">
+      <option value="anthropic" ${State.aiProvider === "anthropic" ? "selected" : ""}>Anthropic (Claude)</option>
+      <option value="openai" ${State.aiProvider === "openai" ? "selected" : ""}>OpenAI (GPT)</option>
+      <option value="gemini" ${State.aiProvider === "gemini" ? "selected" : ""}>Google (Gemini)</option>
+      <option value="grok" ${State.aiProvider === "grok" ? "selected" : ""}>xAI (Grok)</option>
+      <option value="poe" ${State.aiProvider === "poe" ? "selected" : ""}>Poe</option>
+      <option value="openrouter" ${State.aiProvider === "openrouter" ? "selected" : ""}>OpenRouter</option>
+    </select>
+    <div class="form-label">Model</div>
+    <input id="aiModel" placeholder="Model (optional - leave blank for default)" value="${escapeHtml(State.aiModel || "")}" />
+    <div class="form-label">API Key</div>
+    <input id="aiKey" type="password" placeholder="API Key" value="${escapeHtml(State.apiKey || "")}" />
+    <div class="btn-row">
+      <button class="success" id="saveAI">Save</button>
+      <button class="danger" id="clearAI">Clear</button>
+    </div>
+
+    <div class="form-label">Output Effort</div>
+    <select id="aiOutputEffort">
+      <option value="short"  ${State.aiOutputEffort === "short"  ? "selected" : ""}>Shorter messages</option>
+      <option value="medium" ${(!State.aiOutputEffort || State.aiOutputEffort === "medium") ? "selected" : ""}>Middle-sized messages</option>
+      <option value="long"   ${State.aiOutputEffort === "long"   ? "selected" : ""}>Longer messages</option>
+    </select>
+
+    <div class="form-label">Style (optional)</div>
+    <textarea id="aiStyle" rows="3" placeholder="Tell the model how you want it to write. e.g. 'wry, dry humor', 'literary and reflective', 'gritty and unsentimental', 'lighthearted and playful'.">${escapeHtml(State.aiStyle || "")}</textarea>
+
+    <div class="toggle-row">
+      <div class="toggle-text">
+        <div class="toggle-title">Life Management</div>
+        <div class="toggle-desc">Fade older memories when calling the AI. Cheaper per request, but the AI sees less context.</div>
+      </div>
+      <input type="checkbox" class="toggle" id="lifeManagement" ${State.lifeManagement ? "checked" : ""}>
+    </div>
+    <div class="toggle-row">
+      <div class="toggle-text">
+        <div class="toggle-title">AI Mode</div>
+        <div class="toggle-desc">Replace preset yearly events with AI-generated ones. Requires an API key.</div>
+      </div>
+      <input type="checkbox" class="toggle" id="aiMode" ${State.aiMode ? "checked" : ""}>
+    </div>`;
+  body.appendChild(sec2);
+
+  sec2.querySelector("#saveAI").onclick = () => {
+    State.apiKey    = sec2.querySelector("#aiKey").value.trim();
+    State.aiModel   = sec2.querySelector("#aiModel").value.trim();
+    State.aiProvider= sec2.querySelector("#aiProvider").value;
+    localStorage.setItem("bitlife_api_key", State.apiKey);
+    localStorage.setItem("bitlife_ai_model", State.aiModel);
+    localStorage.setItem("bitlife_ai_provider", State.aiProvider);
+    showAftermath("Saved","AI settings saved.");
+  };
+  sec2.querySelector("#aiProvider").onchange = (e) => {
+    State.aiProvider = e.target.value;
+    localStorage.setItem("bitlife_ai_provider", e.target.value);
+  };
+  sec2.querySelector("#aiModel").oninput = (e) => {
+    State.aiModel = e.target.value.trim();
+    localStorage.setItem("bitlife_ai_model", State.aiModel);
+  };
+  sec2.querySelector("#aiKey").oninput = (e) => {
+    State.apiKey = e.target.value.trim();
+    localStorage.setItem("bitlife_api_key", State.apiKey);
+  };
+  sec2.querySelector("#aiOutputEffort").onchange = (e) => {
+    State.aiOutputEffort = e.target.value;
+    localStorage.setItem("bitlife_ai_output_effort", e.target.value);
+  };
+  sec2.querySelector("#aiStyle").oninput = (e) => {
+    State.aiStyle = e.target.value;
+    localStorage.setItem("bitlife_ai_style", e.target.value);
+  };
+  sec2.querySelector("#clearAI").onclick = () => {
+    State.apiKey = ""; State.aiModel = ""; State.aiProvider = "anthropic";
+    State.aiOutputEffort = "medium"; State.aiStyle = "";
+    localStorage.removeItem("bitlife_api_key");
+    localStorage.removeItem("bitlife_ai_model");
+    localStorage.removeItem("bitlife_ai_provider");
+    localStorage.removeItem("bitlife_ai_output_effort");
+    localStorage.removeItem("bitlife_ai_style");
+    // Rebuild this same subview
+    SUBVIEW.body.innerHTML = "";
+    buildAISection(SUBVIEW.body);
+    if (window.lucide) lucide.createIcons();
+  };
+  sec2.querySelector("#lifeManagement").onchange = (e) => {
+    State.lifeManagement = e.target.checked;
+    localStorage.setItem("bitlife_life_management", e.target.checked ? "1" : "0");
+  };
+  sec2.querySelector("#aiMode").onchange = (e) => {
+    State.aiMode = e.target.checked;
+    localStorage.setItem("bitlife_ai_mode", e.target.checked ? "1" : "0");
+    if (e.target.checked && !State.apiKey) {
+      showAftermath("Add a key", "AI Mode needs an API key. Save one above first.");
+    }
+  };
+}
+
+// === Gameplay ===
+function buildGameplaySection(body) {
+  const sec = document.createElement("div");
+  sec.className = "form-section";
+  sec.innerHTML = `<h4>Gameplay</h4>
+    <div class="toggle-row">
+      <div class="toggle-text">
+        <div class="toggle-title">Realistic Mode</div>
+        <div class="toggle-desc">Advance time in hours, days, or weeks instead of full years. You'll need real dedication to keep going, but you'll get lots more events.</div>
+      </div>
+      <input type="checkbox" class="toggle" id="realisticMode" ${State.realisticMode ? "checked" : ""}>
+    </div>`;
+  body.appendChild(sec);
+  sec.querySelector("#realisticMode").onchange = (e) => {
+    if (e.target.checked) {
+      const ok = confirm("You will need to have a real dedication to keep going, but you'll get lots of events in your life. Enable Realistic Mode?");
+      if (!ok) { e.target.checked = false; return; }
+    }
+    State.realisticMode = e.target.checked;
+    localStorage.setItem("bitlife_realistic_mode", e.target.checked ? "1" : "0");
+    if (e.target.checked) {
+      showAftermath("Realistic Mode On", "Click the main button to choose how much time to advance each click. You can pick between minutes, hours, and days.");
+    }
+    render();
+  };
+
+  const sec3 = document.createElement("div");
+  sec3.className = "form-section";
+  sec3.innerHTML = `<h4>Game</h4>
+    <div class="btn-row">
+      <button class="danger" id="newLifeBtn">New Life</button>
+      <button id="copyStory">Copy Story</button>
+    </div>`;
+  body.appendChild(sec3);
+  sec3.querySelector("#newLifeBtn").onclick = () => {
+    if (confirm("Abandon this life and start over?")) { newLife(); closeSubview(); closeSubview(); }
+  };
+  sec3.querySelector("#copyStory").onclick = () => {
+    const text = State.log.map(e => `[${e.age === 0 ? "Day 1" : `Age ${e.age}`}] ${e.text}`).join("\n");
+    navigator.clipboard.writeText(text).then(() => showAftermath("Copied","Life story copied to clipboard."));
+  };
+}
+
+// === Save Slots ===
+function buildSaveSlotsSection(body) {
+  const sec4 = document.createElement("div");
+  sec4.className = "form-section";
+  const fmtTime = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  };
+  let slotHtml = `<h4>Save Slots</h4>
+    <div class="save-slots-hint">Auto-save runs every age-up. Use slots to keep up to 3 named saves.</div>`;
+  for (let n = 1; n <= NUM_SLOTS; n++) {
+    const info = slotInfo(n);
+    const label = info
+      ? `${escapeHtml(info.name)}, age ${info.age}${info.alive ? "" : " ✝"} <span class="slot-meta">— ${fmtTime(info.savedAt)}</span>`
+      : `<span class="slot-empty">Empty</span>`;
+    slotHtml += `
+      <div class="save-slot-row">
+        <div class="save-slot-label">Slot ${n}: ${label}</div>
+        <div class="save-slot-actions">
+          <button class="slot-save" data-slot="${n}">Save</button>
+          <button class="slot-load" data-slot="${n}" ${info ? "" : "disabled"}>Load</button>
+          <button class="slot-delete danger" data-slot="${n}" ${info ? "" : "disabled"}>Del</button>
+        </div>
+      </div>`;
+  }
+  sec4.innerHTML = slotHtml;
+  body.appendChild(sec4);
+
+  const refresh = () => { SUBVIEW.body.innerHTML = ""; buildSaveSlotsSection(SUBVIEW.body); if (window.lucide) lucide.createIcons(); };
+  sec4.querySelectorAll(".slot-save").forEach(btn => {
+    btn.onclick = () => {
+      const n = parseInt(btn.dataset.slot, 10);
+      const existing = slotInfo(n);
+      if (existing && !confirm(`Overwrite Slot ${n} (${existing.name}, age ${existing.age})?`)) return;
+      if (saveToSlot(n)) {
+        showAftermath("Saved", `Slot ${n} updated.`, { onClose: refresh });
+      } else {
+        showAftermath("Save failed", "Couldn't write to that slot.");
+      }
+    };
+  });
+  sec4.querySelectorAll(".slot-load").forEach(btn => {
+    btn.onclick = () => {
+      const n = parseInt(btn.dataset.slot, 10);
+      const info = slotInfo(n);
+      if (!info) return;
+      if (!confirm(`Load Slot ${n}: ${info.name}, age ${info.age}? Your current life will be replaced.`)) return;
+      if (loadFromSlot(n)) {
+        closeSubview(); closeSubview();
+        render();
+        showAftermath("Loaded", `Resumed: ${info.name}, age ${info.age}.`);
+      } else {
+        showAftermath("Load failed", "Couldn't read that slot.");
+      }
+    };
+  });
+  sec4.querySelectorAll(".slot-delete").forEach(btn => {
+    btn.onclick = () => {
+      const n = parseInt(btn.dataset.slot, 10);
+      const info = slotInfo(n);
+      if (!info) return;
+      if (!confirm(`Delete Slot ${n} (${info.name}, age ${info.age})? This can't be undone.`)) return;
+      deleteSlot(n);
+      refresh();
+    };
+  });
+}
+
+// === Sync (BETA) ===
+function buildSyncSection(body) {
+  const secSync = document.createElement("div");
+  secSync.className = "form-section";
+  const linked = !!localStorage.getItem("ailife_account_email");
+  const linkedEmail = localStorage.getItem("ailife_account_email") || "";
+  const lastSync = localStorage.getItem("ailife_last_sync");
+  secSync.innerHTML = `<h4>☁️ Sync progress <span class="beta-badge">BETA</span></h4>
+    <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
+      ${linked
+        ? `Linked as <strong>${escapeHtml(linkedEmail)}</strong>.`
+        : "Link your account to back up your saves to the cloud."}
+      ${lastSync ? `<br>Last sync: ${new Date(parseInt(lastSync,10)).toLocaleString()}.` : ""}
+    </p>
+    <div class="btn-row">
+      ${linked
+        ? `<button class="success" id="acctPush">Push Save</button>
+           <button id="acctPull">Pull Save</button>
+           <button class="danger" id="acctUnlink">Unlink</button>`
+        : `<button class="success" id="acctLink">Link my account</button>`}
+    </div>`;
+  body.appendChild(secSync);
+
+  const refresh = () => { SUBVIEW.body.innerHTML = ""; buildSyncSection(SUBVIEW.body); if (window.lucide) lucide.createIcons(); };
+
+  if (linked) {
+    secSync.querySelector("#acctPush").onclick = () => {
+      localStorage.setItem("ailife_last_sync", String(Date.now()));
+      showAftermath("Pushed", "Save synced to your account.", { onClose: refresh });
+    };
+    secSync.querySelector("#acctPull").onclick = () => {
+      if (!confirm("Pull save from your account? Your current life will be replaced.")) return;
+      localStorage.setItem("ailife_last_sync", String(Date.now()));
+      showAftermath("Pulled", "Save loaded from your account.", { onClose: refresh });
+    };
+    secSync.querySelector("#acctUnlink").onclick = () => {
+      if (!confirm("Unlink account? Your saves stay in the cloud but won't sync anymore.")) return;
+      localStorage.removeItem("ailife_account_email");
+      refresh();
+    };
+  } else {
+    secSync.querySelector("#acctLink").onclick = () => {
+      window.location.href = "login.html";
+    };
+  }
+}
+
+// === Support & Feedback ===
+function buildSupportSection(body) {
+  const FEEDBACK_EMAIL = "stavroselpro@gmail.com";
+  const secFb = document.createElement("div");
+  secFb.className = "form-section";
+  secFb.innerHTML = `<h4>📨 Send Feedback</h4>
+    <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
+      Found a bug, weird AI behavior, or have a feature idea? Tell me about it.
+    </p>
+    <textarea id="fbMessage" placeholder="What's on your mind? Bugs, ideas, feedback…" rows="4"
+              style="width:100%;padding:10px;font-family:inherit;font-size:13px;border:1px solid #d0d0d0;border-radius:6px;resize:vertical;min-height:80px;"></textarea>
+    <div class="btn-row" style="margin-top:8px;">
+      <button class="success" id="fbSend">Send via Email</button>
+      <button id="fbCopy">Copy to Clipboard</button>
+    </div>
+    <p style="font-size:11px;color:#888;margin-top:6px;">
+      Opens your default email app addressed to ${FEEDBACK_EMAIL}. Your current game state is included automatically so I can reproduce issues.
+    </p>`;
+  body.appendChild(secFb);
+
+  const buildFeedbackBody = (msg) => {
+    return [
+      `--- Player feedback ---`,
+      msg || "(no message)",
+      ``,
+      `--- Auto-captured context (please leave attached) ---`,
+      `Browser:     ${navigator.userAgent}`,
+      `Viewport:    ${window.innerWidth}x${window.innerHeight}`,
+      `Local time:  ${new Date().toLocaleString()}`,
+      ``,
+      `Player:      ${State.firstName || "(unnamed)"}, age ${State.age}, ${State.alive ? "alive" : "deceased"}`,
+      `Country:     ${State.country || "?"}`,
+      `Job:         ${State.job ? State.job.title : (State.inSchool ? "Student" : State.inCollege ? "College student" : "None")}`,
+      `Stats:       mood ${State.stats.mood}, health ${State.stats.health}, smarts ${State.stats.smarts}, looks ${State.stats.looks}`,
+      `Money:       ${money(State.money + State.bank)}`,
+      `Badges:      ${State.badges.length}`,
+      `Log entries: ${State.log.length}`,
+      `AI provider: ${State.aiProvider || "(none)"} (mode=${State.aiMode ? "on" : "off"})`,
+      `Realistic:   ${State.realisticMode ? `on (${State.realisticUnit})` : "off"}`,
+    ].join("\n");
+  };
+
+  secFb.querySelector("#fbSend").onclick = () => {
+    const msg = secFb.querySelector("#fbMessage").value.trim();
+    if (!msg) { showAftermath("Empty Feedback", "Type something before sending."); return; }
+    const subject = "AILife Feedback — " + new Date().toISOString().slice(0, 10);
+    const fbody = buildFeedbackBody(msg);
+    window.location.href = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(fbody)}`;
+  };
+  secFb.querySelector("#fbCopy").onclick = async () => {
+    const msg = secFb.querySelector("#fbMessage").value.trim();
+    const fbody = `To: ${FEEDBACK_EMAIL}\nSubject: AILife Feedback\n\n` + buildFeedbackBody(msg);
+    try {
+      await navigator.clipboard.writeText(fbody);
+      showAftermath("Copied", "Feedback copied. Paste it into an email to me whenever you can.");
+    } catch (e) {
+      showAftermath("Copy Failed", "Couldn't copy — your browser blocked clipboard access.");
+    }
+  };
+
+  const secCoffee = document.createElement("div");
+  secCoffee.className = "form-section";
+  secCoffee.innerHTML = `<h4>☕ Support</h4>
+    <p style="font-size:13px;color:#555;line-height:1.5;margin-bottom:10px;">
+      AILife is free and ad-free. If you're enjoying it, you can support development on Ko-Fi — it helps keep the lights on.
+    </p>
+    <a href="https://ko-fi.com/stavroselpro" target="_blank" rel="noopener noreferrer" class="kofi-link">
+      ☕ Support on Ko-Fi
+    </a>`;
+  body.appendChild(secCoffee);
+}
+
+// === About / Legal ===
+function buildAboutSection(body) {
+  const sec5 = document.createElement("div");
+  sec5.className = "form-section";
+  sec5.innerHTML = `<h4>About</h4>
+    <div class="about-text">
+      <p><strong>AILife</strong> — A Dynamic AI-Driven Life Simulator.</p>
+      <p class="about-disclaimer">
+        AILife is an independent fan-made remake. It is <strong>not affiliated with, endorsed by,
+        or made by</strong> BitLife or Candywriter LLC. All trademarks belong to their respective
+        owners. AILife strips all monetization — no ads, no in-app purchases, no paywalls — and
+        focuses on a dynamic, AI-driven life simulation. Provided as-is, free of charge, for
+        personal use only.
+      </p>
+    </div>`;
+  body.appendChild(sec5);
 }
 
 /* ============ AI INTEGRATION ============
