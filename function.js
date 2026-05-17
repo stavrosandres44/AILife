@@ -867,7 +867,14 @@ let _subviewBackStack = [];
 let _suppressMenuSound = false;
 
 function showSubview(title, builder, opts) {
-  if (!_suppressMenuSound) playSound("menu");
+  // Sound choice on open:
+  //   - default (any subview open, top-level or push) → clickOption.wav
+  //   - opts.openSound overrides if a caller wants a different sound
+  //   - _suppressMenuSound (back-navigation) → no sound at all
+  if (!_suppressMenuSound) {
+    const openSound = (opts && opts.openSound) || "clickOption";
+    playSound(openSound);
+  }
   if (!opts || !opts.preserveStack) _subviewBackStack = [];
 
   // Animation direction:
@@ -883,37 +890,76 @@ function showSubview(title, builder, opts) {
     direction = "from-bottom"; // top-level open from main game
   }
 
-  const buildAndShow = () => {
+  // Two-pane transition: when a subview is already showing, we clone it as
+  // a "ghost" that stays visible while the real subview slides into position
+  // from the off-screen direction. Both panes animate together (old slides
+  // out, new slides in) so the user sees both during the transition.
+  const alreadyShowing = SUBVIEW.el.classList.contains("show");
+  let ghost = null;
+
+  const buildContent = () => {
     SUBVIEW.title.textContent = title;
     SUBVIEW.body.innerHTML = "";
     builder(SUBVIEW.body);
     SUBVIEW.body.scrollTop = 0;
     if (window.lucide) lucide.createIcons();
-    // Position off-screen on the correct side, then animate in
-    SUBVIEW.el.classList.remove("exiting-left", "exiting-right", "exiting-bottom", "show", "from-left", "from-right", "from-bottom");
-    SUBVIEW.el.classList.add(direction);
-    // Force a reflow so the off-screen position is registered before .show
-    // eslint-disable-next-line no-unused-expressions
-    void SUBVIEW.el.offsetWidth;
-    SUBVIEW.el.classList.add("show");
   };
 
-  // If a subview is already open, slide it out toward the OPPOSITE direction
-  // of the entrance, then build the new one.
-  if (SUBVIEW.el.classList.contains("show")) {
-    SUBVIEW.el.classList.remove("show");
-    const exit = direction === "from-left"   ? "exiting-right"
-               : direction === "from-right"  ? "exiting-left"
-               : "exiting-bottom";
-    SUBVIEW.el.classList.add(exit);
-    setTimeout(buildAndShow, 220);
+  if (alreadyShowing) {
+    // Clone the current subview (with its current content) into a ghost
+    // overlay that will slide out while the real subview slides in.
+    ghost = SUBVIEW.el.cloneNode(true);
+    ghost.id = "";
+    ghost.classList.add("subview-ghost");
+    ghost.classList.remove("from-left", "from-right", "from-bottom", "exiting-left", "exiting-right", "exiting-bottom");
+    // The ghost starts at the current "shown" position. It will animate OUT
+    // in the direction opposite to the new view's entry.
+    document.body.appendChild(ghost);
+
+    // Now strip animation classes from the real subview and rebuild its
+    // content for the destination view, but leave it offscreen.
+    SUBVIEW.el.classList.remove("show", "from-left", "from-right", "from-bottom", "exiting-left", "exiting-right", "exiting-bottom");
+    SUBVIEW.el.classList.add(direction);
+    // Build the new content while the ghost is still showing the old.
+    buildContent();
+    // Force reflow so the off-screen position is registered before .show.
+    // eslint-disable-next-line no-unused-expressions
+    void SUBVIEW.el.offsetWidth;
+
+    // Now animate both — real slides in to center, ghost slides out the
+    // opposite way.
+    const exitClass = direction === "from-right"  ? "exiting-left"
+                    : direction === "from-left"   ? "exiting-right"
+                    : "exiting-bottom";
+    ghost.classList.add(exitClass);
+    SUBVIEW.el.classList.add("show");
+
+    // Clean up the ghost after the transition finishes.
+    setTimeout(() => {
+      if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+    }, 240);
   } else {
-    buildAndShow();
+    // First-time open: only one pane, slide it in.
+    SUBVIEW.el.classList.remove("show", "from-left", "from-right", "from-bottom", "exiting-left", "exiting-right", "exiting-bottom");
+    SUBVIEW.el.classList.add(direction);
+    buildContent();
+    void SUBVIEW.el.offsetWidth;
+    SUBVIEW.el.classList.add("show");
   }
 }
 function pushSubview(title, builder, parentFn) {
   _subviewBackStack.push(parentFn);
-  showSubview(title, builder, { preserveStack: true });
+  // Sub-page push (deeper navigation) plays the clickOption sound — applies
+  // to category cards in Menu, activity rows, person rows, etc.
+  showSubview(title, builder, { preserveStack: true, openSound: "clickOption" });
+}
+// Re-render the SAME top-level subview without playing any opening sound.
+// Used when a button inside (Buy Stocks, Deposit, Ask for Raise, etc.) needs
+// to refresh the screen — we already played clickOption for the button,
+// so we don't want menu.wav to fire again on top of it.
+function refreshSubview(fn) {
+  _suppressMenuSound = true;
+  try { fn(); } finally { _suppressMenuSound = false; }
 }
 function closeSubview() {
   playSound("back");
@@ -925,11 +971,11 @@ function closeSubview() {
     try { parent(); } finally { _suppressMenuSound = false; }
     return;
   }
-  // Top-level close: slide back DOWN (inverse of the slide-up open).
-  SUBVIEW.el.classList.remove("show");
+  // Top-level close: slide back DOWN to dismiss.
+  SUBVIEW.el.classList.remove("show", "from-left", "from-right", "from-bottom");
   SUBVIEW.el.classList.add("exiting-bottom");
   setTimeout(() => {
-    SUBVIEW.el.classList.remove("exiting-bottom", "exiting-left", "exiting-right", "from-left", "from-right", "from-bottom");
+    SUBVIEW.el.classList.remove("exiting-bottom", "exiting-left", "exiting-right");
   }, 230);
 }
 
@@ -3874,6 +3920,7 @@ function viewActivities() {
       <i data-lucide="chevron-right" class="row-arrow"></i>`;
     if (State.apiKey) {
       aiRow.onclick = () => {
+        playSound("clickOption");
         closeSubview();
         askAICustomAction(
           "What do you want to do? Describe it in your own words.",
@@ -3882,6 +3929,7 @@ function viewActivities() {
       };
     } else {
       aiRow.onclick = () => {
+        playSound("clickOption");
         showAftermath("AI Locked", "Add an API key in the Menu to unlock Custom Activity (AI).");
       };
     }
@@ -3957,7 +4005,7 @@ function activityRow(act) {
   }
 
   row.innerHTML = `<div class="row-text"><div class="row-title">${title}</div><div class="row-desc">${desc}</div></div>${costHtml}`;
-  if (!locked) row.onclick = () => { closeSubview(); doActivity(act); };
+  if (!locked) row.onclick = () => { playSound("clickOption"); closeSubview(); doActivity(act); };
   return row;
 }
 
@@ -3984,7 +4032,7 @@ function viewJail() {
       const row = document.createElement("div");
       row.className = "row-item";
       row.innerHTML = `<div class="row-text"><div class="row-title">${a.name}</div><div class="row-desc">${a.desc}</div></div>`;
-      row.onclick = () => { closeSubview(); doJailActivity(a); };
+      row.onclick = () => { playSound("clickOption"); closeSubview(); doJailActivity(a); };
       body.appendChild(row);
     }
   });
@@ -4004,8 +4052,9 @@ function viewJob() {
           <button class="danger" id="quitJob">Quit</button>
         </div>`;
       body.appendChild(cur);
-      cur.querySelector("#askPromo").onclick = () => askPromotion();
+      cur.querySelector("#askPromo").onclick = () => { playSound("clickOption"); askPromotion(); };
       cur.querySelector("#quitJob").onclick = () => {
+        playSound("clickOption");
         State.job = null;
         logEvent("I quit my job.", "normal");
         closeSubview(); render();
@@ -4025,6 +4074,7 @@ function viewJob() {
           <div class="row-desc">${track.name} — needs Smarts ${entry.minSmarts}+, Age ${entry.minAge}+</div></div>
           <div class="row-cost">${money(entry.salary)}/yr</div>`;
         if (!locked) row.onclick = () => {
+          playSound("clickOption");
           State.job = { trackId: track.id, level: 0, title: entry.title, salary: entry.salary };
           logEvent(`I got a job as a ${entry.title}.`, "good");
           closeSubview(); render();
@@ -4101,6 +4151,7 @@ function viewSchool() {
       </div>${act.cost ? `<div class="row-cost">${act.cost}</div>` : ""}`;
       if (!act.locked) {
         row.onclick = () => {
+          playSound("clickOption");
           closeSubview();
           act.run();
         };
@@ -4734,13 +4785,15 @@ function viewFinance() {
         <button id="playLottery">Play Lottery ($10)</button>
       </div>`;
     body.appendChild(acts);
-    acts.querySelector("#buyStocks").onclick   = () => { if (spend(1000)) { State.investments.stocks += 1000; viewFinance(); } else showAftermath("Can't Afford", "Not enough cash."); };
-    acts.querySelector("#sellStocks").onclick  = () => { State.money += State.investments.stocks; State.investments.stocks = 0; viewFinance(); };
-    acts.querySelector("#buyCrypto").onclick   = () => { if (spend(500)) { State.investments.crypto += 500; viewFinance(); } else showAftermath("Can't Afford","Not enough cash."); };
-    acts.querySelector("#sellCrypto").onclick  = () => { State.money += State.investments.crypto; State.investments.crypto = 0; viewFinance(); };
-    acts.querySelector("#depositCash").onclick = () => { State.bank += State.money; State.money = 0; viewFinance(); };
-    acts.querySelector("#withdrawCash").onclick= () => { if (State.bank >= 500) { State.bank -= 500; State.money += 500; viewFinance(); } else showAftermath("Empty","Bank account is too low."); };
+    const refresh = () => refreshSubview(viewFinance);
+    acts.querySelector("#buyStocks").onclick   = () => { playSound("clickOption"); if (spend(1000)) { State.investments.stocks += 1000; refresh(); } else showAftermath("Can't Afford", "Not enough cash."); };
+    acts.querySelector("#sellStocks").onclick  = () => { playSound("clickOption"); State.money += State.investments.stocks; State.investments.stocks = 0; refresh(); };
+    acts.querySelector("#buyCrypto").onclick   = () => { playSound("clickOption"); if (spend(500)) { State.investments.crypto += 500; refresh(); } else showAftermath("Can't Afford","Not enough cash."); };
+    acts.querySelector("#sellCrypto").onclick  = () => { playSound("clickOption"); State.money += State.investments.crypto; State.investments.crypto = 0; refresh(); };
+    acts.querySelector("#depositCash").onclick = () => { playSound("clickOption"); State.bank += State.money; State.money = 0; refresh(); };
+    acts.querySelector("#withdrawCash").onclick= () => { playSound("clickOption"); if (State.bank >= 500) { State.bank -= 500; State.money += 500; refresh(); } else showAftermath("Empty","Bank account is too low."); };
     acts.querySelector("#playLottery").onclick = () => {
+      playSound("clickOption");
       if (!spend(10)) { showAftermath("No Cash","Need $10 to play."); return; }
       if (Math.random() < 0.001) {
         State.bank += 1000000;
@@ -4839,6 +4892,7 @@ function showPersonActions(person, type) {
       <i data-lucide="chevron-right" class="row-arrow"></i>`;
     if (State.apiKey) {
       aiRow.onclick = () => {
+        playSound("clickOption");
         closeSubview();
         // Tag the AI call so it knows this is a relationship interaction
         const relType = type === "partner" ? "partner"
@@ -4856,6 +4910,7 @@ function showPersonActions(person, type) {
       };
     } else {
       aiRow.onclick = () => {
+        playSound("clickOption");
         showAftermath("AI Locked", "Add an API key in the Menu to unlock Custom Activity (AI).");
       };
     }
@@ -4898,6 +4953,7 @@ function personActionRow(action) {
   </div>${costHtml}`;
   if (!locked) {
     row.onclick = () => {
+      playSound("clickOption");
       closeSubview();
       try { action.run(); } catch (err) { console.error(err); }
       render();
@@ -5499,7 +5555,7 @@ function viewMenu() {
         </div>
         <i data-lucide="chevron-right" class="row-arrow"></i>`;
       row.onclick = () => {
-        playSound("clickOption");
+        // Sound is played by pushSubview's openSound, no need to fire it here.
         c.builder();
       };
       body.appendChild(row);
@@ -6554,6 +6610,8 @@ MANDATORY structure for AI Mode events — failure to follow this is wrong outpu
 - "options": ALWAYS include 2-4 choices. This is non-negotiable for AI Mode events. Even when the event seems unilateral, frame the player's reaction as the choice.
 - Each option has its OWN "narration" (what happens after picking) and OWN "aftermath" (the closing beat).
 - DO NOT put narration or aftermath at the top level when options are present. Only "body" goes there.
+- DO NOT add unrelated topics to the user's age
+- Generate scenes with new topics according to the user's age and stats, do not use the same topics over and over again.
 
 Flow the player will see:
   Year click → "body" appears as a Choice Dialog with the options[] as buttons → player picks → that option's narration logs + that option's aftermath dialog shows.
