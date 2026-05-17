@@ -304,20 +304,15 @@
     display: flex;
     flex-direction: column;
     z-index: 50;
-    /* Default hidden state: off-screen below (matches the slide-UP open). */
+    /* Default hidden state: off-screen below. */
     transform: translateY(100%);
     visibility: hidden;
     transition: transform 0.22s ease-out, visibility 0s linear 0.22s;
     will-change: transform;
   }
-  .subview.show {
-    transform: translate(0, 0);
-    visibility: visible;
-    transition: transform 0.22s ease-out, visibility 0s linear 0s;
-  }
 
   /* Direction modifiers — set BEFORE .show to position the off-screen start,
-     then .show animates to translate(0,0). */
+     then .show animates to translate(0,0). Defined first so .show wins. */
   .subview.from-right  { transform: translateX(100%);  }
   .subview.from-left   { transform: translateX(-100%); }
   .subview.from-bottom { transform: translateY(100%);  }
@@ -326,6 +321,13 @@
   .subview.exiting-right  { transform: translateX(100%);  transition: transform 0.22s ease-out; }
   .subview.exiting-left   { transform: translateX(-100%); transition: transform 0.22s ease-out; }
   .subview.exiting-bottom { transform: translateY(100%);  transition: transform 0.22s ease-out; }
+
+  /* Final state — wins over the direction modifiers via source order. */
+  .subview.show {
+    transform: translate(0, 0) !important;
+    visibility: visible;
+    transition: transform 0.22s ease-out, visibility 0s linear 0s;
+  }
 
   .subview-header {
     background: #336089;
@@ -503,12 +505,12 @@
   }
   .kofi-link:active { transform: translateY(0); }
 
-  /* AI Activity row — sparkles accent */
+  /* AI Activity row — blue accent (was purple) */
   .ai-activity-row {
-    background: linear-gradient(90deg, rgba(126, 62, 199, 0.06), transparent 70%);
-    border-left: 3px solid #7e3ec7;
+    background: linear-gradient(90deg, rgba(51, 96, 137, 0.06), transparent 70%);
+    border-left: 3px solid #336089;
   }
-  .ai-activity-row .row-title { color: #5a2a99; }
+  .ai-activity-row .row-title { color: #1f4870; }
   .ai-activity-row.locked { opacity: 0.6; }
   .beta-badge {
     display: inline-block;
@@ -564,7 +566,7 @@
     width: 22px;
     height: 22px;
     border: 3px solid #ddd;
-    border-top-color: #7e3ec7;
+    border-top-color: #336089;
     border-radius: 50%;
     animation: thinkingSpin 0.9s linear infinite;
     flex-shrink: 0;
@@ -1137,31 +1139,31 @@
   }
   .dlg-dropdown:focus { outline: 2px solid #336089; outline-offset: -1px; }
 
-  /* Custom Choice (AI) — prominent purple button in every dialog */
+  /* Custom Choice (AI) — styled as a hyperlink inside dialogs */
   .dlg-ai-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
-    width: 100%;
-    background: linear-gradient(135deg, #7e5bd0, #4d2a9e);
-    color: #fff;
+    gap: 6px;
+    background: transparent;
+    color: #336089;
     border: none;
-    padding: 12px;
-    font-size: 15px;
-    font-weight: 600;
-    border-radius: 2px;
+    padding: 8px 0 4px;
+    font-size: 13.5px;
+    font-weight: 500;
     cursor: pointer;
-    margin-top: 10px;
+    margin-top: 6px;
     font-family: inherit;
-    transition: filter 0.12s;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.12s;
   }
-  .dlg-ai-btn:hover { filter: brightness(1.1); }
+  .dlg-ai-btn:hover { color: #1f4870; }
   .dlg-ai-btn.disabled {
-    background: #c4b8de;
+    color: #999;
     cursor: not-allowed;
+    text-decoration: none;
   }
-  .dlg-ai-btn svg { width: 16px; height: 16px; stroke-width: 2.4; }
+  .dlg-ai-btn svg { width: 14px; height: 14px; stroke-width: 2.4; }
 
   /* Toggle switch (Life Management / AI Mode in menu) */
   .toggle-row {
@@ -1566,6 +1568,6 @@
   <div class="dlg-hint" id="dialogHint" style="display:none;">click anywhere to leave</div>
 </div>
 
-<script src="function.js?v=112"></script>
+<script src="function.js?v=113"></script>
 </body>
 </html>
