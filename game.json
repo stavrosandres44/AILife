@@ -109272,6 +109272,1248 @@
           ]
         }
       ]
+    },
+    {
+      "id": "baby_bath_chaos",
+      "minAge": 1,
+      "maxAge": 3,
+      "weight": 0.8,
+      "variants": [
+        {
+          "title": "Bath Time",
+          "body": "Mom is trying to give me a bath.",
+          "options": [
+            {
+              "label": "Splash everything",
+              "outcome": {
+                "log": "Bathroom soaked. Mom laughing through clenched teeth.",
+                "stats": {
+                  "mood": 5
+                }
+              }
+            },
+            {
+              "label": "Refuse to get in",
+              "outcome": {
+                "log": "Big fight. I won, sort of. Bath delayed an hour.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -2
+                }
+              }
+            },
+            {
+              "label": "Fall asleep in the warm water",
+              "outcome": {
+                "log": "Cutest nap I'd ever taken.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 4,
+                  "health": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "baby_pacifier",
+      "minAge": 1,
+      "maxAge": 3,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "The Pacifier",
+          "body": "They're trying to take my pacifier away.",
+          "options": [
+            {
+              "label": "Throw a fit",
+              "outcome": {
+                "log": "Tantrum of the year. They gave in.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -2
+                }
+              }
+            },
+            {
+              "label": "Give it up willingly",
+              "outcome": {
+                "log": "Mom was speechless. I felt mature.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 2
+                }
+              }
+            },
+            {
+              "label": "Hide it",
+              "outcome": {
+                "log": "Found it three months later under the couch.",
+                "stats": {
+                  "smarts": 2
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "baby_doctor_shot",
+      "minAge": 1,
+      "maxAge": 3,
+      "weight": 0.8,
+      "variants": [
+        {
+          "title": "Vaccinations",
+          "body": "The pediatrician has a syringe.",
+          "options": [
+            {
+              "label": "Cry the moment I see it",
+              "outcome": {
+                "log": "Standard reaction. Got a lollipop.",
+                "stats": {
+                  "mood": -2,
+                  "health": 2
+                }
+              }
+            },
+            {
+              "label": "Be brave",
+              "outcome": {
+                "log": "Doctor was impressed. So was mom.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 3,
+                  "health": 2
+                }
+              }
+            },
+            {
+              "label": "Try to escape",
+              "outcome": {
+                "log": "Got tackled by a nurse. Embarrassing.",
+                "stats": {
+                  "mood": -3,
+                  "health": 2
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toddler_birthday_party",
+      "minAge": 3,
+      "maxAge": 5,
+      "weight": 0.9,
+      "variants": [
+        {
+          "title": "My Birthday Party",
+          "body": "It's my birthday and there's cake.",
+          "options": [
+            {
+              "label": "Blow out all the candles in one go",
+              "outcome": {
+                "log": "Wish granted, apparently. Everyone clapped.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 7
+                }
+              }
+            },
+            {
+              "label": "Cry because it's overwhelming",
+              "outcome": {
+                "log": "Too much attention. Mom carried me out.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -2
+                }
+              }
+            },
+            {
+              "label": "Steal all the cake",
+              "outcome": {
+                "log": "Made myself sick. Worth it.",
+                "stats": {
+                  "mood": 5,
+                  "health": -2
+                }
+              }
+            },
+            {
+              "label": "Share with everyone",
+              "outcome": {
+                "log": "Mom welled up. Best party ever.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toddler_sandcastle",
+      "minAge": 3,
+      "maxAge": 5,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "At the Beach",
+          "body": "We went to the beach today.",
+          "options": [
+            {
+              "label": "Build a sandcastle",
+              "outcome": {
+                "log": "Best castle ever. Tide ate it. I cried briefly.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 4,
+                  "smarts": 2
+                }
+              }
+            },
+            {
+              "label": "Run into the ocean",
+              "outcome": {
+                "log": "Got knocked over by a wave. Hated it.",
+                "stats": {
+                  "mood": -3,
+                  "health": 1
+                }
+              }
+            },
+            {
+              "label": "Collect shells",
+              "outcome": {
+                "log": "Filled a bucket. Mom kept the prettiest one for years.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 4,
+                  "smarts": 2
+                }
+              }
+            },
+            {
+              "label": "Bury a sibling in sand",
+              "outcome": {
+                "log": "They were not amused. I was.",
+                "stats": {
+                  "mood": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toddler_potty_training",
+      "minAge": 2,
+      "maxAge": 4,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Potty Training",
+          "body": "Mom thinks I'm ready.",
+          "options": [
+            {
+              "label": "Get it on the first try",
+              "outcome": {
+                "log": "Mom called grandma. Grandma cried.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5,
+                  "smarts": 3
+                }
+              }
+            },
+            {
+              "label": "Have an accident on the rug",
+              "outcome": {
+                "log": "Mom was patient. The rug was ruined.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -1
+                }
+              }
+            },
+            {
+              "label": "Refuse the whole concept",
+              "outcome": {
+                "log": "Took six more months. Mom is a saint.",
+                "stats": {
+                  "mood": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toddler_zoo_visit",
+      "minAge": 3,
+      "maxAge": 5,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Zoo Day",
+          "body": "We went to the zoo!",
+          "options": [
+            {
+              "label": "Roar back at the lion",
+              "outcome": {
+                "log": "The lion roared louder. I was thrilled.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 7
+                }
+              }
+            },
+            {
+              "label": "Cry at the monkeys",
+              "outcome": {
+                "log": "They were screaming. So was I.",
+                "stats": {
+                  "mood": -2
+                }
+              }
+            },
+            {
+              "label": "Insist on staying at the petting zoo",
+              "outcome": {
+                "log": "I named every goat. Mom was tired.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5,
+                  "smarts": 2
+                }
+              }
+            },
+            {
+              "label": "Get lost for ten minutes",
+              "outcome": {
+                "log": "Mom aged ten years in those ten minutes.",
+                "stats": {
+                  "mood": -1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toddler_imaginary_kingdom",
+      "minAge": 3,
+      "maxAge": 6,
+      "weight": 0.6,
+      "variants": [
+        {
+          "title": "Imaginary Friend",
+          "body": "I have a new invisible friend.",
+          "options": [
+            {
+              "label": "Insist they get their own dinner plate",
+              "outcome": {
+                "log": "Mom played along. The plate was always 'empty'.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 3,
+                  "mood": 4
+                }
+              }
+            },
+            {
+              "label": "Blame them for everything",
+              "outcome": {
+                "log": "Genius strategy. Lasted until I was 5.",
+                "stats": {
+                  "smarts": 2,
+                  "mood": 2
+                }
+              }
+            },
+            {
+              "label": "Outgrow them quickly",
+              "outcome": {
+                "log": "They moved away. Said goodbye in the mirror.",
+                "stats": {
+                  "mood": -1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toddler_first_movie",
+      "minAge": 4,
+      "maxAge": 6,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "First Movie Theater",
+          "body": "My parents are taking me to the movies for the first time.",
+          "options": [
+            {
+              "label": "Sit still and watch",
+              "outcome": {
+                "log": "Two hours of magic. Wanted to live in the theater.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 8,
+                  "smarts": 2
+                }
+              }
+            },
+            {
+              "label": "Get scared and cry",
+              "outcome": {
+                "log": "Mom carried me out during the dragon scene.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -3
+                }
+              }
+            },
+            {
+              "label": "Eat all the popcorn in 10 minutes",
+              "outcome": {
+                "log": "Sticky fingers everywhere. Worth it.",
+                "stats": {
+                  "mood": 5,
+                  "health": -1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kid_lemonade_stand",
+      "minAge": 6,
+      "maxAge": 9,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Lemonade Stand",
+          "body": "I want to start a lemonade stand this summer.",
+          "options": [
+            {
+              "label": "Make it fancy",
+              "outcome": {
+                "log": "Decorated the sign. Made $14. Felt rich.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5,
+                  "smarts": 3
+                },
+                "money": 14
+              }
+            },
+            {
+              "label": "Sell at a discount",
+              "outcome": {
+                "log": "Sold out in an hour. Made $6.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 2,
+                  "mood": 4
+                },
+                "money": 6
+              }
+            },
+            {
+              "label": "Add cookies",
+              "outcome": {
+                "log": "Doubled my income. Mom helped bake.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 4,
+                  "mood": 5
+                },
+                "money": 22
+              }
+            },
+            {
+              "label": "Lose interest after 30 minutes",
+              "outcome": {
+                "log": "Drank all the lemonade myself.",
+                "stats": {
+                  "mood": 2,
+                  "health": -1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kid_class_play",
+      "minAge": 6,
+      "maxAge": 9,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Class Play",
+          "body": "My class is putting on a play. Auditions are tomorrow.",
+          "options": [
+            {
+              "label": "Audition for the lead",
+              "outcome": {
+                "log": "I got it! Stage parents in the front row.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 8,
+                  "smarts": 2
+                }
+              }
+            },
+            {
+              "label": "Audition for a side role",
+              "outcome": {
+                "log": "Played the second tree. Loved every minute.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5
+                }
+              }
+            },
+            {
+              "label": "Sign up for backstage",
+              "outcome": {
+                "log": "Painted the sets. Quietly satisfying.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 3,
+                  "mood": 3
+                }
+              }
+            },
+            {
+              "label": "Pretend I'm sick that day",
+              "outcome": {
+                "log": "Missed the play. Felt left out for weeks.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kid_brave_friend",
+      "minAge": 6,
+      "maxAge": 10,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Standing By a Friend",
+          "body": "My friend is being teased at school.",
+          "options": [
+            {
+              "label": "Tell the teasers to back off",
+              "outcome": {
+                "log": "I made my first real enemy and best friend in one day.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5
+                },
+                "remember": "brave"
+              }
+            },
+            {
+              "label": "Sit with them at lunch",
+              "outcome": {
+                "log": "Quiet solidarity. They didn't forget.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 4
+                }
+              }
+            },
+            {
+              "label": "Tell the teacher",
+              "outcome": {
+                "log": "Adults got involved. Mixed results.",
+                "stats": {
+                  "mood": 1,
+                  "smarts": 2
+                }
+              }
+            },
+            {
+              "label": "Pretend I didn't see",
+              "outcome": {
+                "log": "Walked past. Regretted it that night.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kid_video_game",
+      "minAge": 7,
+      "maxAge": 11,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "New Video Game",
+          "body": "A new video game everyone is talking about just came out.",
+          "options": [
+            {
+              "label": "Beg until parents buy it",
+              "outcome": {
+                "log": "$60 of pure joy. Played for 8 hours straight.",
+                "stats": {
+                  "mood": 8,
+                  "health": -1,
+                  "smarts": 1
+                },
+                "money": -60
+              }
+            },
+            {
+              "label": "Save my allowance for it",
+              "outcome": {
+                "log": "Took three months. Felt like I earned it.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 6,
+                  "smarts": 4
+                },
+                "money": -60
+              }
+            },
+            {
+              "label": "Just watch a friend play",
+              "outcome": {
+                "log": "Free entertainment. We became closer.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 4
+                }
+              }
+            },
+            {
+              "label": "Skip it \u2014 overrated anyway",
+              "outcome": {
+                "log": "Saved my money. Friends thought I was weird.",
+                "stats": {
+                  "smarts": 2
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kid_first_concert",
+      "minAge": 7,
+      "maxAge": 11,
+      "weight": 0.5,
+      "variants": [
+        {
+          "title": "First Concert",
+          "body": "Parents are taking me to see a band I love.",
+          "options": [
+            {
+              "label": "Scream every lyric",
+              "outcome": {
+                "log": "Lost my voice. Couldn't stop smiling for days.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 10,
+                  "health": -1
+                },
+                "money": -80
+              }
+            },
+            {
+              "label": "Sit quietly and absorb it all",
+              "outcome": {
+                "log": "I felt like I'd seen real magic.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 8,
+                  "smarts": 3
+                },
+                "money": -80
+              }
+            },
+            {
+              "label": "Get separated and panic",
+              "outcome": {
+                "log": "Mom found me at the merch table. I'd bought a poster anyway.",
+                "stats": {
+                  "mood": 2
+                },
+                "money": -80
+              }
+            },
+            {
+              "label": "Beg to leave early",
+              "outcome": {
+                "log": "Hated the crowds. Mom understood.",
+                "stats": {
+                  "mood": -2
+                },
+                "money": -80
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kid_lego_set",
+      "minAge": 5,
+      "maxAge": 10,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Big LEGO Set",
+          "body": "I got a 1500-piece LEGO set as a gift.",
+          "options": [
+            {
+              "label": "Build it perfectly over a week",
+              "outcome": {
+                "log": "Centerpiece of my room for years.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 5,
+                  "mood": 6
+                }
+              }
+            },
+            {
+              "label": "Build it in one feverish night",
+              "outcome": {
+                "log": "Worth the lost sleep. Mom found me at 2am.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 4,
+                  "mood": 5,
+                  "health": -1
+                }
+              }
+            },
+            {
+              "label": "Lose the instructions and freestyle",
+              "outcome": {
+                "log": "Built something abstract and wrong. Loved it.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 4,
+                  "mood": 4
+                }
+              }
+            },
+            {
+              "label": "Give up at piece 200",
+              "outcome": {
+                "log": "Joined the box of forgotten projects.",
+                "stats": {
+                  "mood": -1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kid_secret_handshake",
+      "minAge": 6,
+      "maxAge": 10,
+      "weight": 0.6,
+      "variants": [
+        {
+          "title": "Secret Handshake",
+          "body": "My best friend wants to invent a secret handshake with me.",
+          "options": [
+            {
+              "label": "Make it elaborate",
+              "outcome": {
+                "log": "Twelve moves. Took weeks to perfect. We still remember it.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 6,
+                  "smarts": 3
+                }
+              }
+            },
+            {
+              "label": "Keep it simple",
+              "outcome": {
+                "log": "Three quick steps. Easy to remember.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 4
+                }
+              }
+            },
+            {
+              "label": "Add a secret password",
+              "outcome": {
+                "log": "Even cooler. Felt like a spy.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5,
+                  "smarts": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "adult_neighbor_dispute",
+      "minAge": 30,
+      "maxAge": 50,
+      "weight": 0.6,
+      "variants": [
+        {
+          "title": "Neighbor Drama",
+          "body": "My neighbor is playing loud music at 1am every weekend.",
+          "options": [
+            {
+              "label": "Knock and talk to them",
+              "outcome": {
+                "log": "Awkward but they apologized. Music stopped.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 2,
+                  "smarts": 3
+                }
+              }
+            },
+            {
+              "label": "Call the cops",
+              "outcome": {
+                "log": "Music stopped. Now we don't speak.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -3
+                }
+              }
+            },
+            {
+              "label": "Leave a passive-aggressive note",
+              "outcome": {
+                "log": "Made everything worse.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -4
+                }
+              }
+            },
+            {
+              "label": "Just buy earplugs and move on",
+              "outcome": {
+                "log": "Cheaper than the alternative.",
+                "stats": {
+                  "smarts": 2
+                },
+                "money": -20
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "adult_lost_phone",
+      "minAge": 18,
+      "maxAge": 60,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Lost Phone",
+          "body": "I lost my phone somewhere between the bar and home.",
+          "options": [
+            {
+              "label": "Use Find My Phone to recover it",
+              "outcome": {
+                "log": "Got it back. Bartender held it for me.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 3
+                }
+              }
+            },
+            {
+              "label": "Buy a new one immediately",
+              "outcome": {
+                "log": "Painful purchase. Same model.",
+                "stats": {
+                  "mood": -4
+                },
+                "money": -800
+              }
+            },
+            {
+              "label": "Live without one for a month",
+              "outcome": {
+                "log": "Surprisingly peaceful. Eventually caved.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 4,
+                  "mood": -2
+                },
+                "money": -700
+              }
+            },
+            {
+              "label": "Find an old phone to use",
+              "outcome": {
+                "log": "Cracked screen. Functional. Free.",
+                "stats": {
+                  "smarts": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "adult_old_band",
+      "minAge": 30,
+      "maxAge": 55,
+      "weight": 0.5,
+      "variants": [
+        {
+          "title": "Old Band Reunion",
+          "body": "Someone from my old college band is suggesting a reunion gig.",
+          "options": [
+            {
+              "label": "Yes, let's do it!",
+              "outcome": {
+                "log": "Played a packed bar. Felt 22 again.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 10,
+                  "health": -1
+                },
+                "money": 200
+              }
+            },
+            {
+              "label": "Just a jam session at someone's house",
+              "outcome": {
+                "log": "Lower stakes. Just as fun.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 7
+                }
+              }
+            },
+            {
+              "label": "Politely decline \u2014 that's behind me",
+              "outcome": {
+                "log": "Felt mature. Felt also sad.",
+                "stats": {
+                  "mood": -2,
+                  "smarts": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "adult_terrible_haircut",
+      "minAge": 18,
+      "maxAge": 70,
+      "weight": 0.6,
+      "variants": [
+        {
+          "title": "Terrible Haircut",
+          "body": "The new stylist gave me a haircut I hate.",
+          "options": [
+            {
+              "label": "Wear a hat for a month",
+              "outcome": {
+                "log": "Survived. Eventually grew out.",
+                "stats": {
+                  "mood": -2,
+                  "looks": -3
+                }
+              }
+            },
+            {
+              "label": "Go full bald",
+              "outcome": {
+                "log": "Bold move. Either confident or unhinged.",
+                "stats": {
+                  "mood": 2,
+                  "looks": -1
+                },
+                "money": -30
+              }
+            },
+            {
+              "label": "Fix it at a better salon ($150)",
+              "outcome": {
+                "log": "Worth every penny.",
+                "stats": {
+                  "mood": 5,
+                  "looks": 3
+                },
+                "money": -150
+              }
+            },
+            {
+              "label": "Embrace it",
+              "outcome": {
+                "log": "Posted online. Got compliments. Confused.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 4,
+                  "looks": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "adult_car_breakdown",
+      "minAge": 18,
+      "maxAge": 80,
+      "weight": 0.7,
+      "variants": [
+        {
+          "title": "Car Broke Down",
+          "body": "My car just died on the highway.",
+          "options": [
+            {
+              "label": "Call a tow truck",
+              "outcome": {
+                "log": "$200 to get it home. Then $800 for repairs.",
+                "logKind": "bad",
+                "stats": {
+                  "mood": -5
+                },
+                "money": -1000
+              }
+            },
+            {
+              "label": "Try to fix it myself",
+              "outcome": {
+                "log": "Watched YouTube. Got it running. Pride knows no bounds.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 4,
+                  "mood": 4
+                },
+                "money": -100
+              }
+            },
+            {
+              "label": "Get a friend to tow me",
+              "outcome": {
+                "log": "Owe them dinner. Cheap fix.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 2
+                },
+                "money": -200
+              }
+            },
+            {
+              "label": "Junk it and buy used",
+              "outcome": {
+                "log": "Spontaneous car shopping. Lower payments.",
+                "stats": {
+                  "mood": 2
+                },
+                "money": -3000
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "senior_book_club",
+      "minAge": 60,
+      "maxAge": 85,
+      "weight": 0.6,
+      "variants": [
+        {
+          "title": "Book Club Invite",
+          "body": "The neighborhood book club invited me to join.",
+          "options": [
+            {
+              "label": "Join \u2014 read everything",
+              "outcome": {
+                "log": "Made three new friends. Argued about Dostoyevsky monthly.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 5,
+                  "mood": 6
+                },
+                "special": "addFriend"
+              }
+            },
+            {
+              "label": "Join but just listen",
+              "outcome": {
+                "log": "Quiet enjoyment. They respected it.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 3,
+                  "mood": 4
+                }
+              }
+            },
+            {
+              "label": "Politely decline",
+              "outcome": {
+                "log": "Reading is solitary for me. They understood.",
+                "stats": {
+                  "smarts": 2
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "senior_grandkid_app",
+      "minAge": 60,
+      "maxAge": 80,
+      "weight": 0.6,
+      "variants": [
+        {
+          "title": "Grandkid's App",
+          "body": "My grandchild wants me to install a video call app.",
+          "options": [
+            {
+              "label": "Learn it patiently",
+              "outcome": {
+                "log": "Now I call them weekly. They show me their world.",
+                "logKind": "good",
+                "stats": {
+                  "smarts": 4,
+                  "mood": 6
+                }
+              }
+            },
+            {
+              "label": "Have them set it up for me",
+              "outcome": {
+                "log": "Done in five minutes. Calls them daily.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5
+                }
+              }
+            },
+            {
+              "label": "Stick with the landline",
+              "outcome": {
+                "log": "Old-school. Slower but works.",
+                "stats": {
+                  "mood": 1
+                }
+              }
+            },
+            {
+              "label": "Try and rage-quit",
+              "outcome": {
+                "log": "Threw the tablet on the couch. Tried again next week.",
+                "stats": {
+                  "mood": -2,
+                  "smarts": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "senior_volunteer",
+      "minAge": 65,
+      "maxAge": 85,
+      "weight": 0.6,
+      "variants": [
+        {
+          "title": "Volunteering",
+          "body": "The library is looking for senior volunteers.",
+          "options": [
+            {
+              "label": "Sign up for shelving",
+              "outcome": {
+                "log": "Quiet hours surrounded by books. Heaven.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 6,
+                  "smarts": 3
+                }
+              }
+            },
+            {
+              "label": "Read to kids on Saturdays",
+              "outcome": {
+                "log": "Their faces lit up. So did mine.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 8
+                }
+              }
+            },
+            {
+              "label": "Help teach computer skills",
+              "outcome": {
+                "log": "Patient work. Felt useful.",
+                "logKind": "good",
+                "stats": {
+                  "mood": 5,
+                  "smarts": 4
+                }
+              }
+            },
+            {
+              "label": "Pass \u2014 I've done enough",
+              "outcome": {
+                "log": "Earned my rest.",
+                "stats": {
+                  "mood": 2
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "jailActivities": [
