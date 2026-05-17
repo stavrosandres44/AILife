@@ -87,15 +87,15 @@ function initSounds() {
     if (el) {
       el.volume = _audioVolume;
       el.preload = "auto";
-      // Force the browser to start fetching the file immediately so the
-      // first play doesn't lag on a network round-trip.
+      // If the file is missing (404), drop it from the registry so playSound
+      // becomes a silent no-op for that sound. Avoids repeated console errors.
+      el.addEventListener("error", () => {
+        delete SOUNDS[id];
+      }, { once: true });
       try { el.load(); } catch (e) { /* ignore */ }
       SOUNDS[id] = el;
     }
   }
-  // Best-effort warm-up: silently "play" each sound muted on the first
-  // user gesture so the audio decoder is primed and subsequent plays are
-  // truly instant. Wrapped in unlockAudio so it runs after a gesture.
 }
 
 function playSound(name) {
@@ -3868,7 +3868,7 @@ function viewActivities() {
     aiRow.className = "row-item ai-activity-row" + (State.apiKey ? "" : " locked");
     aiRow.innerHTML = `
       <div class="row-text">
-        <div class="row-title"><i data-lucide="sparkles" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:#7e3ec7;"></i>Custom Activity (AI)</div>
+        <div class="row-title"><i data-lucide="sparkles" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:#336089;"></i>Custom Activity (AI)</div>
         <div class="row-desc">${State.apiKey ? "Describe anything you want to do — the AI handles the rest." : "Add an API key in the Menu to unlock."}</div>
       </div>
       <i data-lucide="chevron-right" class="row-arrow"></i>`;
@@ -4831,7 +4831,7 @@ function showPersonActions(person, type) {
     aiRow.className = "row-item ai-activity-row" + (State.apiKey ? "" : " locked");
     aiRow.innerHTML = `
       <div class="row-text">
-        <div class="row-title"><i data-lucide="sparkles" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:#7e3ec7;"></i>Custom Activity (AI)</div>
+        <div class="row-title"><i data-lucide="sparkles" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:#336089;"></i>Custom Activity (AI)</div>
         <div class="row-desc">${State.apiKey
           ? `Describe anything you want to do with ${person.name} — the AI handles the rest.`
           : "Add an API key in the Menu to unlock."}</div>
